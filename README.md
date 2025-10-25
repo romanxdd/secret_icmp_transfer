@@ -33,3 +33,10 @@ secret -r <file> -s <ip|hostname> [-l]
    * The standard C library (ISO/ANSI or POSIX variants), C++ and STL
    * OpenSSL for AES encryption
    * No other libraries are permitted.
+
+### Repository status
+
+- Initial scaffolding in place with `src/`, `include/`, and `tests/` directories.
+- Build driven by a top-level `Makefile` producing the `secret` binary.
+- `src/main.cpp` currently contains a placeholder entry point pending argument parsing and protocol integration.
+- Protocol header serialization/deserialization helpers live in `include/protocol.h` and `src/protocol.cpp`, with a smoke test stub in `tests/protocol_tests.cpp`.
