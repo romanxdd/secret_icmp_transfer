@@ -40,3 +40,4 @@ secret -r <file> -s <ip|hostname> [-l]
 - Build driven by a top-level `Makefile` producing the `secret` binary.
 - `src/main.cpp` currently contains a placeholder entry point pending argument parsing and protocol integration.
 - Protocol header serialization/deserialization helpers live in `include/protocol.h` and `src/protocol.cpp`, with a smoke test stub in `tests/protocol_tests.cpp`.
+- AES utilities implemented in `include/crypto.h` and `src/crypto.cpp`, with coverage via `tests/crypto_tests.cpp` to verify key derivation and round-trip encryption.
