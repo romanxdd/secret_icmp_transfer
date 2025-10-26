@@ -9,7 +9,7 @@
 
 namespace protocol {
 
-constexpr uint32_t MAGIC = 0x53434341u;      // "SCCA" in ASCII
+constexpr uint32_t MAGIC = 0x53434354u; // "SCCT" in ASCII (secret covert channel transfer)
 constexpr uint8_t VERSION = 0x01u;
 constexpr uint32_t START_SEQUENCE = 0xFFFFFFFFu;
 constexpr std::size_t HEADER_SIZE = 20u;
