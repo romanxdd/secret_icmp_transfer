@@ -1,4 +1,5 @@
 #include "app_config.h"
+#include "sender.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -76,6 +77,43 @@ int main(int argc, char **argv) {
 
     emitConfigurationSummary(config);
 
-    // TODO: wire sender/receiver flows.
+        if (config.listenMode) {
+                std::cerr << "Receiver mode not yet implemented" << std::endl;
+                return 1;
+        }
+
+        class ConsoleChannel : public OutboundChannel {
+      public:
+        bool sendPacket(const protocol::PacketHeader &header,
+                        const std::vector<uint8_t> &payload,
+                        std::string &errorMessage) override {
+            (void)errorMessage;
+            if (verbose_) {
+                std::cout << "Sending packet type=" << static_cast<int>(header.type)
+                          << " seq=" << header.sequenceNumber
+                          << " len=" << header.payloadLength << std::endl;
+            }
+            (void)payload;
+            return true;
+        }
+
+        explicit ConsoleChannel(bool verbose) : verbose_(verbose) {}
+
+      private:
+        bool verbose_ = false;
+    };
+
+    ConsoleChannel channel(config.verbose);
+    SenderStats stats;
+    std::string senderError;
+    if (!runSender(config, stats, senderError, channel)) {
+        std::cerr << "Sender error: " << senderError << std::endl;
+        return 1;
+    }
+    if (config.verbose) {
+        std::cout << "Packets sent: " << stats.packetsSent
+                  << ", bytes sent (approx): " << stats.bytesSent << std::endl;
+    }
+
     return 0;
 }
