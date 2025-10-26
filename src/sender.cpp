@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <limits>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -84,6 +85,11 @@ bool sendStartPacket(OutboundChannel &channel, const std::string &fileName, cons
         return false;
     }
 
+    if (encodedPayload.size() > std::numeric_limits<uint16_t>::max()) {
+        errorMessage = "start payload exceeds protocol limits";
+        return false;
+    }
+
     header.payloadLength = static_cast<uint16_t>(encodedPayload.size());
     payloadLengthOut = encodedPayload.size();
     if (!channel.sendPacket(header, encodedPayload, errorMessage)) {
@@ -101,6 +107,10 @@ bool sendDataPacket(OutboundChannel &channel, const std::vector<uint8_t> &chunk,
     header.transferId = transferId;
     header.sequenceNumber = seq;
     header.totalPackets = totalPackets;
+    if (chunk.size() > std::numeric_limits<uint16_t>::max()) {
+        errorMessage = "data chunk exceeds protocol limits";
+        return false;
+    }
     header.payloadLength = static_cast<uint16_t>(chunk.size());
 
     return channel.sendPacket(header, chunk, errorMessage);

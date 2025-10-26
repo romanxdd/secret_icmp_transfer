@@ -1,9 +1,11 @@
 #include "app_config.h"
+#include "icmp_channel.h"
 #include "sender.h"
 
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <pwd.h>
 #include <string>
 #include <sys/types.h>
@@ -77,36 +79,21 @@ int main(int argc, char **argv) {
 
     emitConfigurationSummary(config);
 
-        if (config.listenMode) {
-                std::cerr << "Receiver mode not yet implemented" << std::endl;
-                return 1;
-        }
+    if (config.listenMode) {
+        std::cerr << "Receiver mode not yet implemented" << std::endl;
+        return 1;
+    }
 
-        class ConsoleChannel : public OutboundChannel {
-      public:
-        bool sendPacket(const protocol::PacketHeader &header,
-                        const std::vector<uint8_t> &payload,
-                        std::string &errorMessage) override {
-            (void)errorMessage;
-            if (verbose_) {
-                std::cout << "Sending packet type=" << static_cast<int>(header.type)
-                          << " seq=" << header.sequenceNumber
-                          << " len=" << header.payloadLength << std::endl;
-            }
-            (void)payload;
-            return true;
-        }
+    std::string channelError;
+    auto channel = Icmpv4Channel::create(config.destination, config.verbose, channelError);
+    if (!channel) {
+        std::cerr << "Channel error: " << channelError << std::endl;
+        return 1;
+    }
 
-        explicit ConsoleChannel(bool verbose) : verbose_(verbose) {}
-
-      private:
-        bool verbose_ = false;
-    };
-
-    ConsoleChannel channel(config.verbose);
     SenderStats stats;
     std::string senderError;
-    if (!runSender(config, stats, senderError, channel)) {
+    if (!runSender(config, stats, senderError, *channel)) {
         std::cerr << "Sender error: " << senderError << std::endl;
         return 1;
     }
