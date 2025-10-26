@@ -41,3 +41,4 @@ secret -r <file> -s <ip|hostname> [-l]
 - `src/main.cpp` currently contains a placeholder entry point pending argument parsing and protocol integration.
 - Protocol header serialization/deserialization helpers live in `include/protocol.h` and `src/protocol.cpp`, with a smoke test stub in `tests/protocol_tests.cpp`.
 - AES utilities implemented in `include/crypto.h` and `src/crypto.cpp`, with coverage via `tests/crypto_tests.cpp` to verify key derivation and round-trip encryption.
+- Command-line parsing and configuration lives in `include/app_config.h` / `src/app_config.cpp`, exercised by `tests/app_config_tests.cpp`; `src/main.cpp` now resolves login defaults and prints a configuration summary.

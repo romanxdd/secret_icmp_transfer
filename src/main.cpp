@@ -1,8 +1,81 @@
+#include "app_config.h"
+
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
+#include <pwd.h>
+#include <string>
+#include <sys/types.h>
+#include <unistd.h>
+
+namespace {
+
+bool discoverLogin(std::string &login, std::string &errorMessage) {
+    if (const char *env = std::getenv("LOGNAME")) {
+        if (*env != '\0') {
+            login.assign(env);
+            return true;
+        }
+    }
+    if (const char *env = std::getenv("USER")) {
+        if (*env != '\0') {
+            login.assign(env);
+            return true;
+        }
+    }
+
+    errno = 0;
+    struct passwd *pw = ::getpwuid(::getuid());
+    if (pw && pw->pw_name) {
+        login.assign(pw->pw_name);
+        return true;
+    }
+
+    errorMessage = errno ? std::string("getpwuid failed: ") + ::strerror(errno)
+                         : "could not determine login";
+    return false;
+}
+
+void emitConfigurationSummary(const AppConfig &config) {
+    if (config.listenMode) {
+        std::cout << "Mode: listen" << (config.verbose ? " (verbose)" : "") << '\n';
+    } else {
+        std::cout << "Mode: send to " << config.destination
+                  << "\n  Source file: " << config.sourcePath
+                  << "\n  Chunk size: " << config.chunkSize << " bytes"
+                  << (config.verbose ? "\n  Verbose logging enabled" : "")
+                  << '\n';
+    }
+    std::cout << "  Login key: " << config.login << '\n';
+}
+
+} // namespace
 
 int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
-    std::cout << "secret: ICMP covert channel tool (under construction)" << std::endl;
+    AppConfig config;
+    std::string errorMessage;
+    if (!parseCommandLine(argc, argv, config, errorMessage)) {
+        if (!errorMessage.empty()) {
+            std::cerr << "Error: " << errorMessage << std::endl;
+        }
+        printUsage(argv[0], std::cerr);
+        return 1;
+    }
+
+    if (config.showHelp) {
+        printUsage(argv[0], std::cout);
+        return 0;
+    }
+
+    if (config.login.empty()) {
+        if (!discoverLogin(config.login, errorMessage)) {
+            std::cerr << "Error: " << errorMessage << std::endl;
+            return 1;
+        }
+    }
+
+    emitConfigurationSummary(config);
+
+    // TODO: wire sender/receiver flows.
     return 0;
 }
