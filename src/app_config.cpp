@@ -32,7 +32,7 @@ bool parseCommandLine(int argc, char **argv, AppConfig &config, std::string &err
     config = AppConfig{};
     ::optind = 1;
     int option = 0;
-    while ((option = ::getopt(argc, argv, "r:s:lc:vk:h")) != -1) {
+    while ((option = ::getopt(argc, argv, "r:s:lc:vk:hi:")) != -1) {
         switch (option) {
             case 'r':
                 config.sourcePath = ::optarg ? ::optarg : "";
@@ -56,6 +56,9 @@ bool parseCommandLine(int argc, char **argv, AppConfig &config, std::string &err
                 break;
             case 'h':
                 config.showHelp = true;
+                break;
+            case 'i':
+                config.interfaceName = ::optarg ? ::optarg : "";
                 break;
             case '?':
             default:
@@ -100,6 +103,7 @@ void printUsage(const char *programName, std::ostream &os) {
        << "  -r <file>         Path to file to send (sender mode)\n"
        << "  -s <dest>         Destination IP or hostname (sender mode)\n"
        << "  -l                Listen mode (receiver)\n"
+    << "  -i <iface>       Capture interface (receiver; default auto)\n"
        << "  -c <bytes>        Override encrypted chunk size (default "
        << protocol::DEFAULT_CHUNK_SIZE << ")\n"
        << "  -k <login>        Override login used for key derivation\n"

@@ -66,6 +66,31 @@ int runListenTest() {
         std::cerr << "listen configuration mismatch" << std::endl;
         return 1;
     }
+    if (!config.interfaceName.empty()) {
+        std::cerr << "interface should default empty" << std::endl;
+        return 1;
+    }
+    return 0;
+}
+
+int runInterfaceTest() {
+    char arg0[] = "secret";
+    char arg1[] = "-l";
+    char arg2[] = "-i";
+    char arg3[] = "lo";
+    char *argv[] = {arg0, arg1, arg2, arg3, nullptr};
+    int argc = 4;
+
+    AppConfig config;
+    std::string error;
+    if (!parseCommandLine(argc, argv, config, error)) {
+        std::cerr << "interface parse failed: " << error << std::endl;
+        return 1;
+    }
+    if (!config.listenMode || config.interfaceName != "lo") {
+        std::cerr << "interface configuration mismatch" << std::endl;
+        return 1;
+    }
     return 0;
 }
 
@@ -79,6 +104,9 @@ int main() {
         return 1;
     }
     if (runListenTest() != 0) {
+        return 1;
+    }
+    if (runInterfaceTest() != 0) {
         return 1;
     }
     std::cout << "app_config tests passed" << std::endl;

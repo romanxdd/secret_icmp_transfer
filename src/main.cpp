@@ -1,6 +1,7 @@
 #include "app_config.h"
-#include "icmp_channel.h"
 #include "sender.h"
+#include "icmp_channel.h"
+#include "receiver.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -42,6 +43,9 @@ bool discoverLogin(std::string &login, std::string &errorMessage) {
 void emitConfigurationSummary(const AppConfig &config) {
     if (config.listenMode) {
         std::cout << "Mode: listen" << (config.verbose ? " (verbose)" : "") << '\n';
+        if (!config.interfaceName.empty()) {
+            std::cout << "  Interface: " << config.interfaceName << '\n';
+        }
     } else {
         std::cout << "Mode: send to " << config.destination
                   << "\n  Source file: " << config.sourcePath
@@ -80,26 +84,36 @@ int main(int argc, char **argv) {
     emitConfigurationSummary(config);
 
     if (config.listenMode) {
-        std::cerr << "Receiver mode not yet implemented" << std::endl;
-        return 1;
-    }
+        ReceiverStats receiverStats;
+        std::string receiverError;
+        if (!runReceiver(config, receiverStats, receiverError)) {
+            std::cerr << "Receiver error: " << receiverError << std::endl;
+            return 1;
+        }
+        std::cout << "Saved file: " << receiverStats.outputFile << std::endl;
+        if (config.verbose) {
+            std::cout << "Captured packets: " << receiverStats.packetsCaptured
+                      << ", decrypted bytes: " << receiverStats.bytesDecrypted << std::endl;
+        }
+    } else {
+        std::string channelError;
+        auto channel = Icmpv4Channel::create(config.destination, config.verbose, channelError);
+        if (!channel) {
+            std::cerr << "Channel error: " << channelError << std::endl;
+            return 1;
+        }
 
-    std::string channelError;
-    auto channel = Icmpv4Channel::create(config.destination, config.verbose, channelError);
-    if (!channel) {
-        std::cerr << "Channel error: " << channelError << std::endl;
-        return 1;
-    }
-
-    SenderStats stats;
-    std::string senderError;
-    if (!runSender(config, stats, senderError, *channel)) {
-        std::cerr << "Sender error: " << senderError << std::endl;
-        return 1;
-    }
-    if (config.verbose) {
-        std::cout << "Packets sent: " << stats.packetsSent
-                  << ", bytes sent (approx): " << stats.bytesSent << std::endl;
+        SenderStats stats;
+        std::string senderError;
+        if (!runSender(config, stats, senderError, *channel)) {
+            std::cerr << "Sender error: " << senderError << std::endl;
+            return 1;
+        }
+        std::cout << "Transfer complete" << std::endl;
+        if (config.verbose) {
+            std::cout << "Packets sent: " << stats.packetsSent
+                      << ", bytes sent (approx): " << stats.bytesSent << std::endl;
+        }
     }
 
     return 0;

@@ -44,3 +44,28 @@ secret -r <file> -s <ip|hostname> [-l]
 - Command-line parsing and configuration lives in `include/app_config.h` / `src/app_config.cpp`, exercised by `tests/app_config_tests.cpp`; `src/main.cpp` now resolves login defaults and prints a configuration summary.
 - Sender workflow added via `include/sender.h` / `src/sender.cpp` with a mockable `OutboundChannel`; end-to-end chunking is verified by `tests/sender_tests.cpp`.
 - Raw IPv4 transmission implemented in `include/icmp_channel.h` / `src/icmp_channel.cpp`; `secret` now emits genuine ICMP Echo-Requests and therefore requires root privileges (or `CAP_NET_RAW`) at runtime.
+- Receiver pipeline implemented in `include/receiver.h` / `src/receiver.cpp` using libpcap capture and buffered reassembly; logic is exercised by `tests/receiver_reassembly_tests.cpp`.
+
+### Building
+
+- Ensure development headers for OpenSSL and libpcap are installed (`libssl-dev`, `libpcap-dev` on Debian/Ubuntu).
+- Run `make` to produce the `secret` binary in the project root.
+- Optional unit checks:
+   - `g++ -std=c++17 -Iinclude tests/sender_tests.cpp src/sender.cpp src/crypto.cpp src/protocol.cpp src/app_config.cpp -lcrypto -o sender_tests`
+   - `g++ -std=c++17 -Iinclude tests/receiver_reassembly_tests.cpp src/receiver.cpp src/protocol.cpp src/crypto.cpp src/app_config.cpp -lpcap -lcrypto -o receiver_reassembly_tests`
+   - Execute `./sender_tests` and `./receiver_reassembly_tests` to verify protocol helpers.
+
+### Running
+
+- **Sender:** `sudo ./secret -r /path/to/file -s <destination-ip> [-c chunk] [-k login] [-v]`
+- **Receiver:** `sudo ./secret -l [-i iface] [-k login] [-v]` (use `-i lo` for loopback tests on a single host)
+- The program derives the AES-256 key from the login (either discovered from the environment or provided via `-k`).
+- Without `-i`, the listener picks the first non-loopback interface reported by libpcap; if none is available it falls back to the first adapter.
+- ICMP Echo-Request packets carry the covert payload; ensure firewalls allow outbound/inbound ICMP between peers.
+- To avoid running as root on every invocation you may grant the binary raw-socket capability (Linux): `sudo setcap cap_net_raw+ep ./secret`.
+
+### Protocol overview
+
+- Each ICMP payload begins with the `SCCA` magic, protocol version, type, transfer ID, sequence, total packets, and payload length (see `protocol.h`).
+- START packets supply file metadata and IV, DATA packets stream AES-256-CBC ciphertext slices, END packets finalize the transfer.
+- The receiver listens with the BPF filter `icmp and icmp[8:4] = 0x53434341`, ensuring only covert-channel traffic is processed.

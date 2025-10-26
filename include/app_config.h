@@ -15,6 +15,7 @@ struct AppConfig {
     std::string destination;
     std::size_t chunkSize = protocol::DEFAULT_CHUNK_SIZE;
     std::string login;
+    std::string interfaceName;
 };
 
 bool parseCommandLine(int argc, char **argv, AppConfig &config, std::string &errorMessage);
