@@ -29,4 +29,25 @@ class Icmpv4Channel : public OutboundChannel {
     uint16_t identifier_ = 0;
 };
 
+class Icmpv6Channel : public OutboundChannel {
+  public:
+    ~Icmpv6Channel() override;
+
+    static std::unique_ptr<Icmpv6Channel> create(const std::string &destination,
+                                                 bool verbose,
+                                                 std::string &errorMessage);
+
+    bool sendPacket(const protocol::PacketHeader &header,
+                    const std::vector<uint8_t> &payload,
+                    std::string &errorMessage) override;
+
+  private:
+    Icmpv6Channel(int socketFd, const struct sockaddr_in6 &destination, bool verbose, uint16_t identifier);
+
+    int socketFd_ = -1;
+    struct sockaddr_in6 destination_;
+    bool verbose_ = false;
+    uint16_t identifier_ = 0;
+};
+
 #endif // SECRET_ICMP_CHANNEL_H

@@ -1,43 +1,74 @@
 #include "app_config.h"
-#include "sender.h"
 #include "icmp_channel.h"
 #include "receiver.h"
+#include "sender.h"
 
-#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <memory>
-#include <pwd.h>
+#include <netdb.h>
 #include <string>
-#include <sys/types.h>
-#include <unistd.h>
 
 namespace {
 
-bool discoverLogin(std::string &login, std::string &errorMessage) {
-    if (const char *env = std::getenv("LOGNAME")) {
-        if (*env != '\0') {
-            login.assign(env);
+enum class DestinationFamily {
+    IPv4,
+    IPv6
+};
+
+bool resolveDestinationFamily(const AppConfig &config, DestinationFamily &family, std::string &errorMessage) {
+    struct addrinfo hints;
+    std::memset(&hints, 0, sizeof(hints));
+    switch (config.ipVersionPreference) {
+        case AppConfig::IpVersionPreference::IPv4:
+            hints.ai_family = AF_INET;
+            break;
+        case AppConfig::IpVersionPreference::IPv6:
+            hints.ai_family = AF_INET6;
+            break;
+        case AppConfig::IpVersionPreference::Auto:
+        default:
+            hints.ai_family = AF_UNSPEC;
+            break;
+    }
+    hints.ai_socktype = SOCK_RAW;
+    hints.ai_protocol = 0;
+
+    struct addrinfo *result = nullptr;
+    const int rc = ::getaddrinfo(config.destination.c_str(), nullptr, &hints, &result);
+    if (rc != 0) {
+        errorMessage = std::string("getaddrinfo failed: ") + ::gai_strerror(rc);
+        return false;
+    }
+
+    for (struct addrinfo *ai = result; ai != nullptr; ai = ai->ai_next) {
+        if (ai->ai_family == AF_INET) {
+            family = DestinationFamily::IPv4;
+            ::freeaddrinfo(result);
             return true;
         }
-    }
-    if (const char *env = std::getenv("USER")) {
-        if (*env != '\0') {
-            login.assign(env);
+        if (ai->ai_family == AF_INET6) {
+            family = DestinationFamily::IPv6;
+            ::freeaddrinfo(result);
             return true;
         }
     }
 
-    errno = 0;
-    struct passwd *pw = ::getpwuid(::getuid());
-    if (pw && pw->pw_name) {
-        login.assign(pw->pw_name);
-        return true;
-    }
-
-    errorMessage = errno ? std::string("getpwuid failed: ") + ::strerror(errno)
-                         : "could not determine login";
+    ::freeaddrinfo(result);
+    errorMessage = "destination does not resolve to IPv4 or IPv6";
     return false;
+}
+
+std::unique_ptr<OutboundChannel> createOutboundChannel(const AppConfig &config, std::string &errorMessage) {
+    DestinationFamily family;
+    if (!resolveDestinationFamily(config, family, errorMessage)) {
+        return nullptr;
+    }
+
+    if (family == DestinationFamily::IPv4) {
+        return Icmpv4Channel::create(config.destination, config.verbose, errorMessage);
+    }
+    return Icmpv6Channel::create(config.destination, config.verbose, errorMessage);
 }
 
 void emitConfigurationSummary(const AppConfig &config) {
@@ -74,13 +105,6 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    if (config.login.empty()) {
-        if (!discoverLogin(config.login, errorMessage)) {
-            std::cerr << "Error: " << errorMessage << std::endl;
-            return 1;
-        }
-    }
-
     emitConfigurationSummary(config);
 
     if (config.listenMode) {
@@ -97,7 +121,7 @@ int main(int argc, char **argv) {
         }
     } else {
         std::string channelError;
-        auto channel = Icmpv4Channel::create(config.destination, config.verbose, channelError);
+        auto channel = createOutboundChannel(config, channelError);
         if (!channel) {
             std::cerr << "Channel error: " << channelError << std::endl;
             return 1;

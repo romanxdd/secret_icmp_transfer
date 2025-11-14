@@ -3,12 +3,15 @@
 #include "crypto.h"
 #include "protocol.h"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
 #include <fstream>
 #include <net/ethernet.h>
+#include <netinet/icmp6.h>
 #include <netinet/ip.h>
+#include <netinet/ip6.h>
 #include <netinet/ip_icmp.h>
 #include <pcap/pcap.h>
 #include <sys/stat.h>
@@ -28,6 +31,65 @@ bool ensureLoginProvided(const AppConfig &config, std::string &errorMessage) {
     return true;
 }
 
+bool chooseCaptureDevice(const std::string &requestedName,
+                         std::string &deviceName,
+                         std::string &errorMessage) {
+    if (requestedName == "any") {
+        deviceName = "any";
+        return true;
+    }
+
+    char errbuf[PCAP_ERRBUF_SIZE] = {0};
+    pcap_if_t *devices = nullptr;
+    if (::pcap_findalldevs(&devices, errbuf) == -1) {
+        errorMessage = std::string("pcap_findalldevs failed: ") + errbuf;
+        return false;
+    }
+
+    auto cleanup = [&]() {
+        if (devices) {
+            ::pcap_freealldevs(devices);
+        }
+    };
+
+    if (!requestedName.empty()) {
+        for (const pcap_if_t *cur = devices; cur != nullptr; cur = cur->next) {
+            if (cur->name && requestedName == cur->name) {
+                deviceName = cur->name;
+                cleanup();
+                return true;
+            }
+        }
+        cleanup();
+        errorMessage = "specified interface not found";
+        return false;
+    }
+
+    const pcap_if_t *chosen = nullptr;
+    for (const pcap_if_t *cur = devices; cur != nullptr; cur = cur->next) {
+        if (cur->name == nullptr) {
+            continue;
+        }
+        if (!chosen) {
+            chosen = cur;
+        }
+        if ((cur->flags & PCAP_IF_LOOPBACK) == 0) {
+            chosen = cur;
+            break;
+        }
+    }
+
+    if (!chosen || !chosen->name) {
+        cleanup();
+        errorMessage = "no capture devices available";
+        return false;
+    }
+
+    deviceName = chosen->name;
+    cleanup();
+    return true;
+}
+
 bool writeFile(const std::string &path, const std::vector<uint8_t> &data, std::string &errorMessage) {
     std::ofstream output(path, std::ios::binary);
     if (!output) {
@@ -42,27 +104,31 @@ bool writeFile(const std::string &path, const std::vector<uint8_t> &data, std::s
     return true;
 }
 
-const u_char *skipEthernet(const pcap_pkthdr *header, const u_char *packet, std::size_t &length) {
+bool skipEthernetHeader(const pcap_pkthdr *header, const u_char *packet,
+                        const u_char *&networkBytes, std::size_t &length, uint16_t &etherType) {
     if (header->caplen < sizeof(struct ether_header)) {
-        return nullptr;
+        return false;
     }
     const struct ether_header *eth = reinterpret_cast<const struct ether_header *>(packet);
-    if (ntohs(eth->ether_type) != ETHERTYPE_IP) {
-        return nullptr;
-    }
+    etherType = ntohs(eth->ether_type);
+    networkBytes = packet + sizeof(struct ether_header);
     length = header->caplen - sizeof(struct ether_header);
-    return packet + sizeof(struct ether_header);
+    return true;
 }
 
-bool extractIcmpPayload(const pcap_pkthdr *header, const u_char *packet,
-                        const uint8_t *&payload, std::size_t &payloadLen, std::string &errorMessage) {
+bool extractIcmpv4Payload(const pcap_pkthdr *header, const u_char *packet,
+                          const uint8_t *&payload, std::size_t &payloadLen, std::string &errorMessage) {
+    const u_char *networkBytes = nullptr;
     std::size_t remaining = 0;
-    const u_char *ipBytes = skipEthernet(header, packet, remaining);
-    if (!ipBytes || remaining < sizeof(struct ip)) {
+    uint16_t etherType = 0;
+    if (!skipEthernetHeader(header, packet, networkBytes, remaining, etherType)) {
+        return false;
+    }
+    if (etherType != ETHERTYPE_IP || remaining < sizeof(struct ip)) {
         return false;
     }
 
-    const struct ip *ipHeader = reinterpret_cast<const struct ip *>(ipBytes);
+    const struct ip *ipHeader = reinterpret_cast<const struct ip *>(networkBytes);
     if (ipHeader->ip_p != IPPROTO_ICMP) {
         return false;
     }
@@ -78,7 +144,7 @@ bool extractIcmpPayload(const pcap_pkthdr *header, const u_char *packet,
         return false;
     }
 
-    const struct icmphdr *icmpHeader = reinterpret_cast<const struct icmphdr *>(ipBytes + ipHeaderLen);
+    const struct icmphdr *icmpHeader = reinterpret_cast<const struct icmphdr *>(networkBytes + ipHeaderLen);
     if (icmpHeader->type != ICMP_ECHO) {
         return false;
     }
@@ -88,7 +154,55 @@ bool extractIcmpPayload(const pcap_pkthdr *header, const u_char *packet,
         return false;
     }
 
-    payload = reinterpret_cast<const uint8_t *>(ipBytes + ipHeaderLen + sizeof(struct icmphdr));
+    payload = reinterpret_cast<const uint8_t *>(networkBytes + ipHeaderLen + sizeof(struct icmphdr));
+    payloadLen = icmpDataAvailable;
+    return true;
+}
+
+bool extractIcmpv6Payload(const pcap_pkthdr *header, const u_char *packet,
+                          const uint8_t *&payload, std::size_t &payloadLen, std::string &errorMessage) {
+    const u_char *networkBytes = nullptr;
+    std::size_t remaining = 0;
+    uint16_t etherType = 0;
+    if (!skipEthernetHeader(header, packet, networkBytes, remaining, etherType)) {
+        return false;
+    }
+    if (etherType != ETHERTYPE_IPV6 || remaining < sizeof(struct ip6_hdr)) {
+        return false;
+    }
+
+    const struct ip6_hdr *ipHeader = reinterpret_cast<const struct ip6_hdr *>(networkBytes);
+    if (ipHeader->ip6_nxt != IPPROTO_ICMPV6) {
+        return false;
+    }
+
+    if (remaining < sizeof(struct ip6_hdr)) {
+        return false;
+    }
+
+    std::size_t payloadAvailable = remaining - sizeof(struct ip6_hdr);
+    const uint16_t ipv6PayloadLength = ntohs(ipHeader->ip6_plen);
+    if (ipv6PayloadLength > payloadAvailable) {
+        errorMessage = "captured frame smaller than IPv6 payload";
+        return false;
+    }
+    payloadAvailable = std::min<std::size_t>(payloadAvailable, ipv6PayloadLength);
+
+    if (payloadAvailable < sizeof(struct icmp6_hdr)) {
+        return false;
+    }
+
+    const struct icmp6_hdr *icmpHeader = reinterpret_cast<const struct icmp6_hdr *>(networkBytes + sizeof(struct ip6_hdr));
+    if (icmpHeader->icmp6_type != ICMP6_ECHO_REQUEST) {
+        return false;
+    }
+
+    const std::size_t icmpDataAvailable = payloadAvailable - sizeof(struct icmp6_hdr);
+    if (icmpDataAvailable < protocol::HEADER_SIZE) {
+        return false;
+    }
+
+    payload = reinterpret_cast<const uint8_t *>(icmpHeader) + sizeof(struct icmp6_hdr);
     payloadLen = icmpDataAvailable;
     return true;
 }
@@ -229,54 +343,51 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
         return false;
     }
 
-    char errbuf[PCAP_ERRBUF_SIZE] = {0};
-    pcap_if_t *devices = nullptr;
-    if (::pcap_findalldevs(&devices, errbuf) == -1) {
-        errorMessage = std::string("pcap_findalldevs failed: ") + errbuf;
-        return false;
-    }
-
     std::string deviceName;
-    if (!config.interfaceName.empty()) {
-        for (const pcap_if_t *cur = devices; cur != nullptr; cur = cur->next) {
-            if (cur->name && config.interfaceName == cur->name) {
-                deviceName = cur->name;
-                break;
-            }
-        }
-        if (deviceName.empty()) {
-            ::pcap_freealldevs(devices);
-            errorMessage = "specified interface not found";
-            return false;
-        }
+    const bool preferAny = config.interfaceName.empty();
+    if (preferAny) {
+        deviceName = "any";
     } else {
-        const pcap_if_t *chosen = devices;
-        for (const pcap_if_t *cur = devices; cur != nullptr; cur = cur->next) {
-            if (cur->name == nullptr) {
-                continue;
-            }
-            chosen = cur;
-            if ((cur->flags & PCAP_IF_LOOPBACK) == 0) {
-                break;
-            }
-        }
-        if (!chosen || !chosen->name) {
-            ::pcap_freealldevs(devices);
-            errorMessage = "no capture devices available";
+        if (!chooseCaptureDevice(config.interfaceName, deviceName, errorMessage)) {
             return false;
         }
-        deviceName = chosen->name;
     }
-    ::pcap_freealldevs(devices);
 
+    char errbuf[PCAP_ERRBUF_SIZE] = {0};
     pcap_t *handle = ::pcap_open_live(deviceName.c_str(), BUFSIZ, 1, 1000, errbuf);
+
+    if (!handle && preferAny) {
+        if (!chooseCaptureDevice("", deviceName, errorMessage)) {
+            if (errorMessage.empty()) {
+                errorMessage = std::string("pcap_open_live failed: ") + errbuf;
+            }
+            return false;
+        }
+        std::memset(errbuf, 0, sizeof(errbuf));
+        handle = ::pcap_open_live(deviceName.c_str(), BUFSIZ, 1, 1000, errbuf);
+    }
+
     if (!handle) {
         errorMessage = std::string("pcap_open_live failed: ") + errbuf;
         return false;
     }
 
+    const auto buildFilterExpression = [](AppConfig::IpVersionPreference pref) {
+        switch (pref) {
+            case AppConfig::IpVersionPreference::IPv4:
+                return std::string("icmp and icmp[8:4] = 0x53434354");
+            case AppConfig::IpVersionPreference::IPv6:
+                return std::string("icmp6 and ip6[48:4] = 0x53434354");
+            case AppConfig::IpVersionPreference::Auto:
+            default:
+                return std::string("(icmp and icmp[8:4] = 0x53434354) or (icmp6 and ip6[48:4] = 0x53434354)");
+        }
+    };
+
+    const std::string filterExpr = buildFilterExpression(config.ipVersionPreference);
+
     struct bpf_program program;
-    if (::pcap_compile(handle, &program, "icmp and icmp[8:4] = 0x53434341", 1, PCAP_NETMASK_UNKNOWN) == -1) {
+    if (::pcap_compile(handle, &program, filterExpr.c_str(), 1, PCAP_NETMASK_UNKNOWN) == -1) {
         errorMessage = std::string("pcap_compile failed: ") + ::pcap_geterr(handle);
         ::pcap_close(handle);
         return false;
@@ -312,7 +423,33 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
 
         const uint8_t *payload = nullptr;
         std::size_t payloadLen = 0;
-        if (!extractIcmpPayload(header, packet, payload, payloadLen, errorMessage)) {
+        bool havePayload = false;
+        std::string packetError;
+
+        const bool allowIpv4 = config.ipVersionPreference != AppConfig::IpVersionPreference::IPv6;
+        const bool allowIpv6 = config.ipVersionPreference != AppConfig::IpVersionPreference::IPv4;
+
+        if (allowIpv4) {
+            if (extractIcmpv4Payload(header, packet, payload, payloadLen, packetError)) {
+                havePayload = true;
+            } else if (!packetError.empty()) {
+                errorMessage = packetError;
+                ::pcap_close(handle);
+                return false;
+            }
+        }
+
+        if (!havePayload && allowIpv6) {
+            if (extractIcmpv6Payload(header, packet, payload, payloadLen, packetError)) {
+                havePayload = true;
+            } else if (!packetError.empty()) {
+                errorMessage = packetError;
+                ::pcap_close(handle);
+                return false;
+            }
+        }
+
+        if (!havePayload) {
             continue;
         }
 

@@ -14,8 +14,9 @@ struct AppConfig {
     std::string sourcePath;
     std::string destination;
     std::size_t chunkSize = protocol::DEFAULT_CHUNK_SIZE;
-    std::string login;
+    std::string login = "xkrajc26";
     std::string interfaceName;
+    enum class IpVersionPreference { Auto, IPv4, IPv6 } ipVersionPreference = IpVersionPreference::Auto;
 };
 
 bool parseCommandLine(int argc, char **argv, AppConfig &config, std::string &errorMessage);

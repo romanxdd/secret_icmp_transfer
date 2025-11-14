@@ -15,6 +15,7 @@ constexpr uint32_t START_SEQUENCE = 0xFFFFFFFFu;
 constexpr std::size_t HEADER_SIZE = 20u;
 constexpr std::size_t IV_LENGTH = 16u;
 constexpr std::size_t MAX_FILENAME_LENGTH = 255u;
+constexpr std::size_t MAX_CHUNK_SIZE = 1400u;
 constexpr std::size_t DEFAULT_CHUNK_SIZE = 1024u;
 
 enum class PacketType : uint8_t {

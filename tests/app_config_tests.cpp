@@ -94,6 +94,46 @@ int runInterfaceTest() {
     return 0;
 }
 
+int runIpVersionFlagTest() {
+    char arg0[] = "secret";
+    char arg1[] = "-l";
+    char arg2[] = "-6";
+    char *argv[] = {arg0, arg1, arg2, nullptr};
+    int argc = 3;
+
+    AppConfig config;
+    std::string error;
+    if (!parseCommandLine(argc, argv, config, error)) {
+        std::cerr << "ipv6 flag parse failed: " << error << std::endl;
+        return 1;
+    }
+    if (config.ipVersionPreference != AppConfig::IpVersionPreference::IPv6) {
+        std::cerr << "ipv6 flag not applied" << std::endl;
+        return 1;
+    }
+    return 0;
+}
+
+int runIpVersionConflictTest() {
+    char arg0[] = "secret";
+    char arg1[] = "-4";
+    char arg2[] = "-6";
+    char *argv[] = {arg0, arg1, arg2, nullptr};
+    int argc = 3;
+
+    AppConfig config;
+    std::string error;
+    if (parseCommandLine(argc, argv, config, error)) {
+        std::cerr << "expected failure when combining -4 and -6" << std::endl;
+        return 1;
+    }
+    if (error.find("cannot combine") == std::string::npos) {
+        std::cerr << "unexpected error message: " << error << std::endl;
+        return 1;
+    }
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -107,6 +147,12 @@ int main() {
         return 1;
     }
     if (runInterfaceTest() != 0) {
+        return 1;
+    }
+    if (runIpVersionFlagTest() != 0) {
+        return 1;
+    }
+    if (runIpVersionConflictTest() != 0) {
         return 1;
     }
     std::cout << "app_config tests passed" << std::endl;
