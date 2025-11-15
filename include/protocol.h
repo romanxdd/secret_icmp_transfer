@@ -44,8 +44,11 @@ bool deserializeHeader(const uint8_t *buffer, std::size_t length, PacketHeader &
 struct StartPacketPayload {
     uint8_t flags = 0;
     uint64_t fileSize = 0;
-    std::array<uint8_t, IV_LENGTH> iv{};
-    std::string fileName;
+    std::array<uint8_t, IV_LENGTH> iv{};          // Data stream IV
+    std::array<uint8_t, IV_LENGTH> metadataIv{};  // Filename IV
+    uint8_t fileNameLength = 0;                   // Plaintext length (<= 255)
+    std::vector<uint8_t> encryptedFileName;       // PKCS#7 ciphertext
+    std::string fileName;                         // Plaintext (sender fills before encode, receiver after decrypt)
 };
 
 bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> &out, std::string *error = nullptr);

@@ -37,6 +37,11 @@ int main() {
         start.iv[i] = static_cast<uint8_t>(i);
     }
     start.fileName = "demo.bin";
+    start.fileNameLength = static_cast<uint8_t>(start.fileName.size());
+    for (std::size_t i = 0; i < start.metadataIv.size(); ++i) {
+        start.metadataIv[i] = static_cast<uint8_t>(start.metadataIv.size() - i);
+    }
+    start.encryptedFileName = {0xDE, 0xAD, 0xBE, 0xEF};
 
     std::vector<uint8_t> startBytes;
     if (!encodeStartPayload(start, startBytes)) {
@@ -51,7 +56,9 @@ int main() {
     }
 
     if (decoded.flags != start.flags || decoded.fileSize != start.fileSize ||
-        decoded.fileName != start.fileName || decoded.iv != start.iv) {
+        decoded.iv != start.iv || decoded.metadataIv != start.metadataIv ||
+        decoded.encryptedFileName != start.encryptedFileName ||
+        decoded.fileNameLength != start.fileNameLength) {
         std::cerr << "start payload round-trip mismatch" << std::endl;
         return 1;
     }

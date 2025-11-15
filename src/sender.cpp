@@ -66,19 +66,14 @@ std::string basenameFromPath(const std::string &path) {
     return path.substr(pos + 1);
 }
 
-bool sendStartPacket(OutboundChannel &channel, const std::string &fileName, const crypto::Iv &iv,
-                     uint32_t transferId, uint32_t totalPackets, uint64_t fileSize,
+bool sendStartPacket(OutboundChannel &channel, const protocol::StartPacketPayload &payload,
+                     uint32_t transferId, uint32_t totalPackets,
                      std::size_t &payloadLengthOut, std::string &errorMessage) {
     protocol::PacketHeader header;
     header.type = protocol::PacketType::Start;
     header.transferId = transferId;
     header.sequenceNumber = protocol::START_SEQUENCE;
     header.totalPackets = totalPackets;
-
-    protocol::StartPacketPayload payload;
-    payload.fileSize = fileSize;
-    payload.iv = iv;
-    payload.fileName = fileName;
 
     std::vector<uint8_t> encodedPayload;
     if (!protocol::encodeStartPayload(payload, encodedPayload, &errorMessage)) {
@@ -169,6 +164,10 @@ bool runSender(const AppConfig &config, SenderStats &stats, std::string &errorMe
 
     const std::size_t chunkSize = config.chunkSize;
     const std::string fileNameOnly = basenameFromPath(config.sourcePath);
+    if (fileNameOnly.size() > protocol::MAX_FILENAME_LENGTH) {
+        errorMessage = "file name exceeds protocol limits";
+        return false;
+    }
     std::vector<uint8_t> readBuffer(chunkSize);
     std::vector<uint8_t> cipherBuffer;
     std::vector<uint8_t> chunkPayload;
@@ -216,9 +215,37 @@ bool runSender(const AppConfig &config, SenderStats &stats, std::string &errorMe
 
     totalPackets = static_cast<uint32_t>(encryptedChunks.size());
 
+    crypto::Iv metadataIv{};
+    if (!crypto::generateRandomIv(metadataIv, &errorMessage)) {
+        return false;
+    }
+
+    std::vector<uint8_t> encryptedFileName;
+    {
+        crypto::Aes256CbcEncryptor metadataEncryptor;
+        if (!metadataEncryptor.init(key, metadataIv, &errorMessage)) {
+            return false;
+        }
+        if (!metadataEncryptor.update(reinterpret_cast<const uint8_t *>(fileNameOnly.data()),
+                                      fileNameOnly.size(), encryptedFileName, &errorMessage)) {
+            return false;
+        }
+        if (!metadataEncryptor.finalize(encryptedFileName, &errorMessage)) {
+            return false;
+        }
+    }
+
+    protocol::StartPacketPayload startPayload;
+    startPayload.flags = 0;
+    startPayload.fileSize = static_cast<uint64_t>(fileSize);
+    startPayload.iv = iv;
+    startPayload.metadataIv = metadataIv;
+    startPayload.fileNameLength = static_cast<uint8_t>(fileNameOnly.size());
+    startPayload.encryptedFileName = encryptedFileName;
+    startPayload.fileName = fileNameOnly;
+
     std::size_t startPayloadLen = 0;
-    if (!sendStartPacket(channel, fileNameOnly, iv, transferId, totalPackets, static_cast<uint64_t>(fileSize),
-                         startPayloadLen, errorMessage)) {
+    if (!sendStartPacket(channel, startPayload, transferId, totalPackets, startPayloadLen, errorMessage)) {
         return false;
     }
     ++stats.packetsSent;

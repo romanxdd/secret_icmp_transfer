@@ -20,6 +20,7 @@
 
 #include <iostream>
 #include <memory>
+#include <vector>
 
 namespace {
 
@@ -28,6 +29,40 @@ bool ensureLoginProvided(const AppConfig &config, std::string &errorMessage) {
         errorMessage = "receiver requires login for key derivation";
         return false;
     }
+    return true;
+}
+
+bool decryptFileName(protocol::StartPacketPayload &payload, const crypto::Key &key,
+                     std::string &errorMessage) {
+    if (payload.encryptedFileName.empty()) {
+        errorMessage = "start packet missing encrypted filename";
+        return false;
+    }
+
+    crypto::Aes256CbcDecryptor decryptor;
+    if (!decryptor.init(key, payload.metadataIv, &errorMessage)) {
+        return false;
+    }
+
+    std::vector<uint8_t> plaintext;
+    if (!decryptor.update(payload.encryptedFileName.data(), payload.encryptedFileName.size(), plaintext, &errorMessage)) {
+        return false;
+    }
+
+    if (!decryptor.finalize(plaintext, &errorMessage)) {
+        return false;
+    }
+
+    if (plaintext.size() != payload.fileNameLength) {
+        errorMessage = "filename length mismatch";
+        return false;
+    }
+    if (plaintext.size() > protocol::MAX_FILENAME_LENGTH) {
+        errorMessage = "filename exceeds protocol limits";
+        return false;
+    }
+
+    payload.fileName.assign(reinterpret_cast<const char *>(plaintext.data()), plaintext.size());
     return true;
 }
 
@@ -241,14 +276,8 @@ bool extractIcmpv6Payload(const u_char *networkBytes, std::size_t remaining,
     return true;
 }
 
-bool decryptToFile(const receiver::PacketReassembler &reassembler, const AppConfig &config,
+bool decryptToFile(const receiver::PacketReassembler &reassembler, const crypto::Key &key,
                    ReceiverStats &stats, std::string &errorMessage) {
-    crypto::Key key;
-    if (!crypto::deriveKeyFromLogin(config.login, key)) {
-        errorMessage = "key derivation failed";
-        return false;
-    }
-
     crypto::Aes256CbcDecryptor decryptor;
     if (!decryptor.init(key, reassembler.state().iv, &errorMessage)) {
         return false;
@@ -374,6 +403,12 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
     stats = ReceiverStats{};
 
     if (!ensureLoginProvided(config, errorMessage)) {
+        return false;
+    }
+
+    crypto::Key key;
+    if (!crypto::deriveKeyFromLogin(config.login, key)) {
+        errorMessage = "key derivation failed";
         return false;
     }
 
@@ -515,6 +550,10 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
                     ::pcap_close(handle);
                     return false;
                 }
+                if (!decryptFileName(startPayload, key, errorMessage)) {
+                    ::pcap_close(handle);
+                    return false;
+                }
                 if (!reassembler.handleStart(headerParsed, startPayload, errorMessage)) {
                     if (!errorMessage.empty()) {
                         ::pcap_close(handle);
@@ -559,7 +598,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
         return false;
     }
 
-    if (!decryptToFile(reassembler, config, stats, errorMessage)) {
+    if (!decryptToFile(reassembler, key, stats, errorMessage)) {
         return false;
     }
     return true;

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cstring>
+#include <limits>
 
 namespace {
 
@@ -125,18 +126,25 @@ bool deserializeHeader(const uint8_t *buffer, std::size_t length, PacketHeader &
 }
 
 bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> &out, std::string *error) {
-    const std::size_t nameLen = payload.fileName.size();
-    if (nameLen > MAX_FILENAME_LENGTH) {
+    if (payload.fileNameLength > MAX_FILENAME_LENGTH) {
         if (error) {
             *error = "filename too long for protocol header";
         }
         return false;
     }
 
-    out.clear();
-    out.reserve(2u + sizeof(uint64_t) + IV_LENGTH + nameLen);
+    const std::size_t encryptedLen = payload.encryptedFileName.size();
+    if (encryptedLen == 0 || encryptedLen > std::numeric_limits<uint16_t>::max()) {
+        if (error) {
+            *error = "invalid encrypted filename length";
+        }
+        return false;
+    }
 
-    out.push_back(static_cast<uint8_t>(nameLen));
+    out.clear();
+    out.reserve(2u + sizeof(uint64_t) + (2 * IV_LENGTH) + sizeof(uint16_t) + encryptedLen);
+
+    out.push_back(payload.fileNameLength);
     out.push_back(payload.flags);
 
     const uint64_t fileSizeNetwork = hostToNetwork64(payload.fileSize);
@@ -144,37 +152,53 @@ bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> 
     out.insert(out.end(), fileSizeBytes, fileSizeBytes + sizeof(fileSizeNetwork));
 
     out.insert(out.end(), payload.iv.begin(), payload.iv.end());
-    out.insert(out.end(), payload.fileName.begin(), payload.fileName.end());
+    out.insert(out.end(), payload.metadataIv.begin(), payload.metadataIv.end());
+
+    const uint16_t encryptedLenNetwork = htons(static_cast<uint16_t>(encryptedLen));
+    const auto *lenBytes = reinterpret_cast<const uint8_t *>(&encryptedLenNetwork);
+    out.insert(out.end(), lenBytes, lenBytes + sizeof(encryptedLenNetwork));
+
+    out.insert(out.end(), payload.encryptedFileName.begin(), payload.encryptedFileName.end());
 
     return true;
 }
 
 bool decodeStartPayload(const uint8_t *data, std::size_t length, StartPacketPayload &out, std::string *error) {
-    if (data == nullptr || length < 2u + sizeof(uint64_t) + IV_LENGTH) {
+    const std::size_t minimum = 2u + sizeof(uint64_t) + (2 * IV_LENGTH) + sizeof(uint16_t);
+    if (data == nullptr || length < minimum) {
         if (error) {
             *error = "start payload too short";
         }
         return false;
     }
 
-    const std::size_t nameLen = data[0];
-    if (length < 2u + sizeof(uint64_t) + IV_LENGTH + nameLen) {
-        if (error) {
-            *error = "start payload truncated";
-        }
-        return false;
-    }
-
+    out.fileNameLength = data[0];
     out.flags = data[1];
 
     uint64_t fileSizeNetwork = 0;
     std::memcpy(&fileSizeNetwork, data + 2, sizeof(fileSizeNetwork));
     out.fileSize = networkToHost64(fileSizeNetwork);
 
-    std::copy_n(data + 2 + sizeof(fileSizeNetwork), IV_LENGTH, out.iv.begin());
+    std::size_t offset = 2 + sizeof(fileSizeNetwork);
+    std::copy_n(data + offset, IV_LENGTH, out.iv.begin());
+    offset += IV_LENGTH;
+    std::copy_n(data + offset, IV_LENGTH, out.metadataIv.begin());
+    offset += IV_LENGTH;
 
-    const auto nameBegin = data + 2 + sizeof(fileSizeNetwork) + IV_LENGTH;
-    out.fileName.assign(reinterpret_cast<const char *>(nameBegin), nameLen);
+    uint16_t encryptedLenNetwork = 0;
+    std::memcpy(&encryptedLenNetwork, data + offset, sizeof(encryptedLenNetwork));
+    offset += sizeof(encryptedLenNetwork);
+    const std::size_t encryptedLen = ntohs(encryptedLenNetwork);
+
+    if (length < offset + encryptedLen) {
+        if (error) {
+            *error = "start payload truncated";
+        }
+        return false;
+    }
+
+    out.encryptedFileName.assign(data + offset, data + offset + encryptedLen);
+    out.fileName.clear();
 
     return true;
 }

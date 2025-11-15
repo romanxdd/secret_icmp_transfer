@@ -20,6 +20,7 @@ int main() {
         startPayload.iv[i] = static_cast<uint8_t>(i);
     }
     startPayload.fileName = "reassembler.txt";
+    startPayload.fileNameLength = static_cast<uint8_t>(startPayload.fileName.size());
 
     std::string error;
     if (!reassembler.handleStart(startHeader, startPayload, error)) {
