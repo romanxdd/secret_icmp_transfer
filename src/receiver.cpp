@@ -104,27 +104,71 @@ bool writeFile(const std::string &path, const std::vector<uint8_t> &data, std::s
     return true;
 }
 
-bool skipEthernetHeader(const pcap_pkthdr *header, const u_char *packet,
-                        const u_char *&networkBytes, std::size_t &length, uint16_t &etherType) {
-    if (header->caplen < sizeof(struct ether_header)) {
-        return false;
+struct LinuxCookedCaptureHeader {
+    uint16_t packetType;
+    uint16_t addressType;
+    uint16_t addressLength;
+    uint8_t address[8];
+    uint16_t protocol;
+};
+
+struct LinuxCookedCaptureHeaderV2 {
+    uint16_t protocol;
+    uint16_t reserved;
+    uint32_t interfaceIndex;
+    uint16_t addressType;
+    uint8_t packetType;
+    uint8_t addressLength;
+    uint8_t address[8];
+};
+
+bool extractNetworkPayload(int datalink, const pcap_pkthdr *header, const u_char *packet,
+                           const u_char *&networkBytes, std::size_t &length, uint16_t &etherType,
+                           std::string &errorMessage) {
+    switch (datalink) {
+        case DLT_EN10MB: {
+            if (header->caplen < sizeof(struct ether_header)) {
+                return false;
+            }
+            const struct ether_header *eth = reinterpret_cast<const struct ether_header *>(packet);
+            etherType = ntohs(eth->ether_type);
+            networkBytes = packet + sizeof(struct ether_header);
+            length = header->caplen - sizeof(struct ether_header);
+            return true;
+        }
+#ifdef DLT_LINUX_SLL
+        case DLT_LINUX_SLL: {
+            if (header->caplen < sizeof(LinuxCookedCaptureHeader)) {
+                return false;
+            }
+            const auto *sll = reinterpret_cast<const LinuxCookedCaptureHeader *>(packet);
+            etherType = ntohs(sll->protocol);
+            networkBytes = packet + sizeof(LinuxCookedCaptureHeader);
+            length = header->caplen - sizeof(LinuxCookedCaptureHeader);
+            return true;
+        }
+#endif
+#ifdef DLT_LINUX_SLL2
+        case DLT_LINUX_SLL2: {
+            if (header->caplen < sizeof(LinuxCookedCaptureHeaderV2)) {
+                return false;
+            }
+            const auto *sll2 = reinterpret_cast<const LinuxCookedCaptureHeaderV2 *>(packet);
+            etherType = ntohs(sll2->protocol);
+            networkBytes = packet + sizeof(LinuxCookedCaptureHeaderV2);
+            length = header->caplen - sizeof(LinuxCookedCaptureHeaderV2);
+            return true;
+        }
+#endif
+        default:
+            errorMessage = "unsupported datalink type: " + std::to_string(datalink);
+            return false;
     }
-    const struct ether_header *eth = reinterpret_cast<const struct ether_header *>(packet);
-    etherType = ntohs(eth->ether_type);
-    networkBytes = packet + sizeof(struct ether_header);
-    length = header->caplen - sizeof(struct ether_header);
-    return true;
 }
 
-bool extractIcmpv4Payload(const pcap_pkthdr *header, const u_char *packet,
+bool extractIcmpv4Payload(const u_char *networkBytes, std::size_t remaining,
                           const uint8_t *&payload, std::size_t &payloadLen, std::string &errorMessage) {
-    const u_char *networkBytes = nullptr;
-    std::size_t remaining = 0;
-    uint16_t etherType = 0;
-    if (!skipEthernetHeader(header, packet, networkBytes, remaining, etherType)) {
-        return false;
-    }
-    if (etherType != ETHERTYPE_IP || remaining < sizeof(struct ip)) {
+    if (remaining < sizeof(struct ip)) {
         return false;
     }
 
@@ -159,24 +203,14 @@ bool extractIcmpv4Payload(const pcap_pkthdr *header, const u_char *packet,
     return true;
 }
 
-bool extractIcmpv6Payload(const pcap_pkthdr *header, const u_char *packet,
+bool extractIcmpv6Payload(const u_char *networkBytes, std::size_t remaining,
                           const uint8_t *&payload, std::size_t &payloadLen, std::string &errorMessage) {
-    const u_char *networkBytes = nullptr;
-    std::size_t remaining = 0;
-    uint16_t etherType = 0;
-    if (!skipEthernetHeader(header, packet, networkBytes, remaining, etherType)) {
-        return false;
-    }
-    if (etherType != ETHERTYPE_IPV6 || remaining < sizeof(struct ip6_hdr)) {
+    if (remaining < sizeof(struct ip6_hdr)) {
         return false;
     }
 
     const struct ip6_hdr *ipHeader = reinterpret_cast<const struct ip6_hdr *>(networkBytes);
     if (ipHeader->ip6_nxt != IPPROTO_ICMPV6) {
-        return false;
-    }
-
-    if (remaining < sizeof(struct ip6_hdr)) {
         return false;
     }
 
@@ -402,6 +436,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
     ::pcap_freecode(&program);
 
     receiver::PacketReassembler reassembler;
+    const int datalinkType = ::pcap_datalink(handle);
 
     while (!reassembler.isComplete()) {
         struct pcap_pkthdr *header = nullptr;
@@ -424,13 +459,25 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
         const uint8_t *payload = nullptr;
         std::size_t payloadLen = 0;
         bool havePayload = false;
-        std::string packetError;
+    std::string packetError;
 
         const bool allowIpv4 = config.ipVersionPreference != AppConfig::IpVersionPreference::IPv6;
         const bool allowIpv6 = config.ipVersionPreference != AppConfig::IpVersionPreference::IPv4;
 
-        if (allowIpv4) {
-            if (extractIcmpv4Payload(header, packet, payload, payloadLen, packetError)) {
+        const u_char *networkBytes = nullptr;
+        std::size_t networkLength = 0;
+        uint16_t etherType = 0;
+        if (!extractNetworkPayload(datalinkType, header, packet, networkBytes, networkLength, etherType, packetError)) {
+            if (!packetError.empty()) {
+                errorMessage = packetError;
+                ::pcap_close(handle);
+                return false;
+            }
+            continue;
+        }
+
+        if (allowIpv4 && etherType == ETHERTYPE_IP) {
+            if (extractIcmpv4Payload(networkBytes, networkLength, payload, payloadLen, packetError)) {
                 havePayload = true;
             } else if (!packetError.empty()) {
                 errorMessage = packetError;
@@ -439,8 +486,8 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
             }
         }
 
-        if (!havePayload && allowIpv6) {
-            if (extractIcmpv6Payload(header, packet, payload, payloadLen, packetError)) {
+        if (!havePayload && allowIpv6 && etherType == ETHERTYPE_IPV6) {
+            if (extractIcmpv6Payload(networkBytes, networkLength, payload, payloadLen, packetError)) {
                 havePayload = true;
             } else if (!packetError.empty()) {
                 errorMessage = packetError;
