@@ -109,20 +109,21 @@ bool parseCommandLine(int argc, char **argv, AppConfig &config, std::string &err
     return true;
 }
 
-void printUsage(const char *programName, std::ostream &os) {
-    os << "Usage: " << (programName ? programName : "secret")
-       << " -r <file> -s <ip|hostname> [options]\n"
-       << "       " << (programName ? programName : "secret") << " -l [options]\n\n"
-       << "Options:\n"
-       << "  -r <file>         Path to file to send (sender mode)\n"
-       << "  -s <dest>         Destination IP or hostname (sender mode)\n"
-       << "  -l                Listen mode (receiver)\n"
-    << "  -i <iface>        Capture interface (receiver; default 'any' for all interfaces)\n"
-    << "  -c <bytes>        Override encrypted chunk size (1-" << protocol::MAX_CHUNK_SIZE
-    << ", default " << protocol::DEFAULT_CHUNK_SIZE << ")\n"
-       << "  -k <login>        Override login used for key derivation\n"
-    << "  -4                Force IPv4 (default auto)\n"
-    << "  -6                Force IPv6\n"
-       << "  -v                Verbose logging\n"
-       << "  -h                Show this help message\n";
+void printUsage(const char *programName, std::ostream &os) 
+{
+    os  << "Usage: " << (programName ? programName : "secret")
+        << " -r <file> -s <ip|hostname> [options]\n"
+        << "       " << (programName ? programName : "secret") << " -l [options]\n\n"
+        << "Options:\n"
+        << "  -r <file>         Path to file to send (sender mode)\n"
+        << "  -s <dest>         Destination IP or hostname (sender mode)\n"
+        << "  -l                Listen mode (receiver)\n"
+        << "  -i <iface>        Capture interface (receiver; default 'any' for all interfaces)\n"
+        << "  -c <bytes>        Override encrypted chunk size (1-" << protocol::MAX_CHUNK_SIZE
+        << ", default " << protocol::DEFAULT_CHUNK_SIZE << ")\n"
+        << "  -k <login>        Override login used for key derivation\n"
+        << "  -4                Force IPv4 (default auto)\n"
+        << "  -6                Force IPv6\n"
+        << "  -v                Verbose logging\n"
+        << "  -h                Show this help message\n";
 }

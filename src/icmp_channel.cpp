@@ -139,14 +139,6 @@ std::unique_ptr<Icmpv6Channel> Icmpv6Channel::create(const std::string &destinat
             continue;
         }
 
-        int offset = offsetof(struct icmp6_hdr, icmp6_cksum);
-        if (::setsockopt(socketFd, IPPROTO_IPV6, IPV6_CHECKSUM, &offset, sizeof(offset)) < 0) {
-            errorMessage = std::string("setsockopt IPV6_CHECKSUM failed: ") + ::strerror(errno);
-            ::close(socketFd);
-            socketFd = -1;
-            continue;
-        }
-
         destAddr = *reinterpret_cast<sockaddr_in6 *>(ai->ai_addr);
         destAddr.sin6_port = 0;
         break;
@@ -254,7 +246,8 @@ bool Icmpv4Channel::sendPacket(const protocol::PacketHeader &header,
         std::memcpy(buffer.data() + icmpSize + headerBytes.size(), payload.data(), payload.size());
     }
 
-    icmpHeader->checksum = computeChecksum(buffer.data(), buffer.size());
+    const uint16_t checksum = computeChecksum(buffer.data(), buffer.size());
+    icmpHeader->checksum = htons(checksum);
 
     const ssize_t bytesSent = ::sendto(socketFd_, buffer.data(), buffer.size(), 0,
                                        reinterpret_cast<struct sockaddr *>(&destination_),
