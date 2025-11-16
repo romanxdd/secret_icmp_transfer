@@ -19,7 +19,9 @@
 #include <unistd.h>
 
 #include <iostream>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <vector>
 
 namespace {
@@ -137,6 +139,60 @@ bool writeFile(const std::string &path, const std::vector<uint8_t> &data, std::s
         return false;
     }
     return true;
+}
+
+constexpr int CAPTURE_TIMEOUT_MS = 1000;
+constexpr int CAPTURE_BUFFER_BYTES = 8 * 1024 * 1024;
+pcap_t *openCaptureHandle(const std::string &deviceName,
+                          bool &usingEnhancedBuffer,
+                          std::string &errorMessage) {
+    usingEnhancedBuffer = false;
+    errorMessage.clear();
+    std::string createError;
+    char errbuf[PCAP_ERRBUF_SIZE] = {0};
+
+    if (pcap_t *created = ::pcap_create(deviceName.c_str(), errbuf)) {
+        const bool configured = (::pcap_set_snaplen(created, 65535) == 0 &&
+                                 ::pcap_set_promisc(created, 1) == 0 &&
+                                 ::pcap_set_timeout(created, CAPTURE_TIMEOUT_MS) == 0 &&
+                                 ::pcap_set_buffer_size(created, CAPTURE_BUFFER_BYTES) == 0);
+        if (configured) {
+            const int activateResult = ::pcap_activate(created);
+            if (activateResult >= 0) {
+                usingEnhancedBuffer = true;
+                return created;
+            }
+            if (const char *err = ::pcap_geterr(created); err && *err) {
+                createError = err;
+            } else {
+                createError = "pcap_activate failed";
+            }
+        } else {
+            if (const char *err = ::pcap_geterr(created); err && *err) {
+                createError = err;
+            } else {
+                createError = "pcap configuration failed";
+            }
+        }
+        ::pcap_close(created);
+    } else if (errbuf[0] != '\0') {
+        createError = errbuf;
+    }
+
+    char fallbackErr[PCAP_ERRBUF_SIZE] = {0};
+    pcap_t *handle = ::pcap_open_live(deviceName.c_str(), 65535, 1, CAPTURE_TIMEOUT_MS, fallbackErr);
+    if (!handle) {
+        std::string combined;
+        if (!createError.empty()) {
+            combined = createError + "; ";
+        }
+        combined += std::string("pcap_open_live failed: ") + fallbackErr;
+        errorMessage = combined;
+        return nullptr;
+    }
+
+    errorMessage.clear();
+    return handle;
 }
 
 struct LinuxCookedCaptureHeader {
@@ -333,6 +389,7 @@ bool PacketReassembler::handleStart(const protocol::PacketHeader &header,
     state_.totalPackets = header.totalPackets;
     state_.receivedPackets = 0;
     state_.fileSize = payload.fileSize;
+    state_.receivedBytes = 0;
     state_.iv = payload.iv;
     state_.fileName = payload.fileName;
     state_.chunks.assign(state_.totalPackets, std::vector<uint8_t>());
@@ -363,6 +420,7 @@ bool PacketReassembler::handleData(const protocol::PacketHeader &header,
     state_.chunks[header.sequenceNumber].assign(payload, payload + length);
     state_.receivedFlags[header.sequenceNumber] = true;
     state_.receivedPackets += 1;
+    state_.receivedBytes += static_cast<uint64_t>(length);
     return true;
 }
 
@@ -422,22 +480,32 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
         }
     }
 
-    char errbuf[PCAP_ERRBUF_SIZE] = {0};
-    pcap_t *handle = ::pcap_open_live(deviceName.c_str(), BUFSIZ, 1, 1000, errbuf);
+    auto tryOpenHandle = [&](const std::string &name, std::string &openError) -> pcap_t * {
+        bool usedEnhancedBuffer = false;
+        pcap_t *handle = openCaptureHandle(name, usedEnhancedBuffer, openError);
+        if (handle && config.verbose && usedEnhancedBuffer) {
+            std::cout << "Capture buffer set to "
+                      << (CAPTURE_BUFFER_BYTES / (1024 * 1024))
+                      << " MB on interface " << name << std::endl;
+        }
+        return handle;
+    };
+
+    std::string openError;
+    pcap_t *handle = tryOpenHandle(deviceName, openError);
 
     if (!handle && preferAny) {
-        if (!chooseCaptureDevice("", deviceName, errorMessage)) {
-            if (errorMessage.empty()) {
-                errorMessage = std::string("pcap_open_live failed: ") + errbuf;
-            }
+        std::string chooseError;
+        if (!chooseCaptureDevice("", deviceName, chooseError)) {
+            errorMessage = chooseError.empty() ? "pcap_open_live failed" : chooseError;
             return false;
         }
-        std::memset(errbuf, 0, sizeof(errbuf));
-        handle = ::pcap_open_live(deviceName.c_str(), BUFSIZ, 1, 1000, errbuf);
+        openError.clear();
+        handle = tryOpenHandle(deviceName, openError);
     }
 
     if (!handle) {
-        errorMessage = std::string("pcap_open_live failed: ") + errbuf;
+        errorMessage = openError.empty() ? "pcap_open_live failed" : openError;
         return false;
     }
 
@@ -472,6 +540,58 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
 
     receiver::PacketReassembler reassembler;
     const int datalinkType = ::pcap_datalink(handle);
+
+    double lastProgressPercent = -10.0;
+    const auto emitProgress = [&](bool force) {
+        if (!config.verbose) {
+            return;
+        }
+        const auto &state = reassembler.state();
+        if (!state.hasStart || state.totalPackets == 0) {
+            return;
+        }
+        double denominator = 0.0;
+        double numerator = 0.0;
+        if (state.fileSize > 0) {
+            denominator = static_cast<double>(state.fileSize);
+            numerator = static_cast<double>(std::min<uint64_t>(state.receivedBytes, state.fileSize));
+        } else {
+            denominator = static_cast<double>(state.totalPackets);
+            numerator = static_cast<double>(state.receivedPackets);
+        }
+
+        if (denominator <= 0.0) {
+            return;
+        }
+
+        double percent = (numerator * 100.0) / denominator;
+        percent = std::clamp(percent, 0.0, 100.0);
+
+        if (!force && percent < lastProgressPercent + 1.0 && state.receivedPackets != state.totalPackets) {
+            return;
+        }
+
+        std::ostringstream oss;
+        oss.setf(std::ios::fixed);
+        oss << std::setprecision(1) << percent;
+        std::cout << "Progress: " << state.receivedPackets << "/" << state.totalPackets
+                  << " packets, " << state.receivedBytes << "/" << state.fileSize
+                  << " bytes (" << oss.str() << "%)" << std::endl;
+        lastProgressPercent = percent;
+    };
+
+    const auto announceStart = [&]() {
+        if (!config.verbose) {
+            return;
+        }
+        const auto &state = reassembler.state();
+        if (!state.hasStart) {
+            return;
+        }
+        std::cout << "Receiving \"" << state.fileName << "\" ("
+                  << state.fileSize << " bytes across " << state.totalPackets
+                  << " packets)" << std::endl;
+    };
 
     while (!reassembler.isComplete()) {
         struct pcap_pkthdr *header = nullptr;
@@ -562,6 +682,8 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
                     continue;
                 }
                 stats.startPackets += 1;
+                announceStart();
+                emitProgress(true);
                 break;
             }
             case protocol::PacketType::Data: {
@@ -573,6 +695,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
                     continue;
                 }
                 stats.dataPackets += 1;
+                emitProgress(false);
                 break;
             }
             case protocol::PacketType::End: {
@@ -584,6 +707,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
                     continue;
                 }
                 stats.endPackets += 1;
+                emitProgress(true);
                 break;
             }
             default:
@@ -592,6 +716,8 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
     }
 
     ::pcap_close(handle);
+
+    emitProgress(true);
 
     if (!reassembler.isComplete()) {
         errorMessage = "capture ended before transfer complete";

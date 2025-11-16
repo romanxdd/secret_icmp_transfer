@@ -19,6 +19,7 @@ struct ReassemblyState {
     uint32_t totalPackets = 0;
     uint32_t receivedPackets = 0;
     uint64_t fileSize = 0;
+  uint64_t receivedBytes = 0;
     crypto::Iv iv{};
     std::string fileName;
     std::vector<std::vector<uint8_t>> chunks;
@@ -55,7 +56,10 @@ struct ReceiverStats {
     std::size_t dataPackets = 0;
     std::size_t endPackets = 0;
     std::size_t bytesDecrypted = 0;
-  std::string outputFile;
+    std::string outputFile;
+    uint32_t kernelPackets = 0;
+    uint32_t kernelDropped = 0;
+    uint32_t interfaceDropped = 0;
 };
 
 bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &errorMessage);
