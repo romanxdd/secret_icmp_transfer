@@ -5,60 +5,69 @@
 #include <cstring>
 #include <limits>
 
-namespace {
+namespace
+{
 
+// [ref] https://www.youtube.com/watch?v=Sh7hTquGybE
 #if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
 constexpr bool kHostIsLittleEndian = true;
 #else
 constexpr bool kHostIsLittleEndian = false;
 #endif
 
-uint64_t hostToNetwork64(uint64_t value) {
-    if constexpr (kHostIsLittleEndian) {
-#if defined(__has_builtin)
-#  if __has_builtin(__builtin_bswap64)
-        return static_cast<uint64_t>(__builtin_bswap64(value));
-#  else
-        return ((value & 0x00000000000000FFull) << 56) |
-               ((value & 0x000000000000FF00ull) << 40) |
-               ((value & 0x0000000000FF0000ull) << 24) |
-               ((value & 0x00000000FF000000ull) << 8)  |
-               ((value & 0x000000FF00000000ull) >> 8)  |
-               ((value & 0x0000FF0000000000ull) >> 24) |
-               ((value & 0x00FF000000000000ull) >> 40) |
-               ((value & 0xFF00000000000000ull) >> 56);
-#  endif
-#else
-        return ((value & 0x00000000000000FFull) << 56) |
-               ((value & 0x000000000000FF00ull) << 40) |
-               ((value & 0x0000000000FF0000ull) << 24) |
-               ((value & 0x00000000FF000000ull) << 8)  |
-               ((value & 0x000000FF00000000ull) >> 8)  |
-               ((value & 0x0000FF0000000000ull) >> 24) |
-               ((value & 0x00FF000000000000ull) >> 40) |
-               ((value & 0xFF00000000000000ull) >> 56);
-#endif
+uint64_t hostToNetwork64(uint64_t value)
+{
+    if constexpr (kHostIsLittleEndian)
+    {
+        #if defined(__has_builtin)
+        #if __has_builtin(__builtin_bswap64)
+            return static_cast<uint64_t>(__builtin_bswap64(value));
+        #else
+            return ((value & 0x00000000000000FFull) << 56) |
+                ((value & 0x000000000000FF00ull) << 40) |
+                ((value & 0x0000000000FF0000ull) << 24) |
+                ((value & 0x00000000FF000000ull) << 8) |
+                ((value & 0x000000FF00000000ull) >> 8) |
+                ((value & 0x0000FF0000000000ull) >> 24) |
+                ((value & 0x00FF000000000000ull) >> 40) |
+                ((value & 0xFF00000000000000ull) >> 56);
+        #endif
+        #else
+            return ((value & 0x00000000000000FFull) << 56) |
+                ((value & 0x000000000000FF00ull) << 40) |
+                ((value & 0x0000000000FF0000ull) << 24) |
+                ((value & 0x00000000FF000000ull) << 8) |
+                ((value & 0x000000FF00000000ull) >> 8) |
+                ((value & 0x0000FF0000000000ull) >> 24) |
+                ((value & 0x00FF000000000000ull) >> 40) |
+                ((value & 0xFF00000000000000ull) >> 56);
+        #endif
     }
     return value;
 }
 
-uint64_t networkToHost64(uint64_t value) {
+uint64_t networkToHost64(uint64_t value)
+{
     return hostToNetwork64(value);
 }
 
 } // namespace
 
-namespace protocol {
+namespace protocol
+{
 
-bool PacketHeader::hasValidMagic() const {
+bool PacketHeader::hasValidMagic() const
+{
     return magic == MAGIC;
 }
 
-bool PacketHeader::hasExpectedVersion() const {
+bool PacketHeader::hasExpectedVersion() const
+{
     return version == VERSION;
 }
 
-std::array<uint8_t, HEADER_SIZE> serializeHeader(const PacketHeader &header) {
+std::array<uint8_t, HEADER_SIZE> serializeHeader(const PacketHeader &header)
+{
     std::array<uint8_t, HEADER_SIZE> buffer{};
 
     const uint32_t magicNetwork = htonl(header.magic);
@@ -88,8 +97,10 @@ std::array<uint8_t, HEADER_SIZE> serializeHeader(const PacketHeader &header) {
     return buffer;
 }
 
-bool deserializeHeader(const uint8_t *buffer, std::size_t length, PacketHeader &header) {
-    if (buffer == nullptr || length < HEADER_SIZE) {
+bool deserializeHeader(const uint8_t *buffer, std::size_t length, PacketHeader &header)
+{
+    if (buffer == nullptr || length < HEADER_SIZE)
+    {
         return false;
     }
 
@@ -125,17 +136,22 @@ bool deserializeHeader(const uint8_t *buffer, std::size_t length, PacketHeader &
     return header.hasValidMagic();
 }
 
-bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> &out, std::string *error) {
-    if (payload.fileNameLength > MAX_FILENAME_LENGTH) {
-        if (error) {
+bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> &out, std::string *error)
+{
+    if (payload.fileNameLength > MAX_FILENAME_LENGTH)
+    {
+        if (error)
+        {
             *error = "filename too long for protocol header";
         }
         return false;
     }
 
     const std::size_t encryptedLen = payload.encryptedFileName.size();
-    if (encryptedLen == 0 || encryptedLen > std::numeric_limits<uint16_t>::max()) {
-        if (error) {
+    if (encryptedLen == 0 || encryptedLen > std::numeric_limits<uint16_t>::max())
+    {
+        if (error)
+        {
             *error = "invalid encrypted filename length";
         }
         return false;
@@ -163,10 +179,13 @@ bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> 
     return true;
 }
 
-bool decodeStartPayload(const uint8_t *data, std::size_t length, StartPacketPayload &out, std::string *error) {
+bool decodeStartPayload(const uint8_t *data, std::size_t length, StartPacketPayload &out, std::string *error)
+{
     const std::size_t minimum = 2u + sizeof(uint64_t) + (2 * IV_LENGTH) + sizeof(uint16_t);
-    if (data == nullptr || length < minimum) {
-        if (error) {
+    if (data == nullptr || length < minimum)
+    {
+        if (error)
+        {
             *error = "start payload too short";
         }
         return false;
@@ -190,8 +209,10 @@ bool decodeStartPayload(const uint8_t *data, std::size_t length, StartPacketPayl
     offset += sizeof(encryptedLenNetwork);
     const std::size_t encryptedLen = ntohs(encryptedLenNetwork);
 
-    if (length < offset + encryptedLen) {
-        if (error) {
+    if (length < offset + encryptedLen)
+    {
+        if (error)
+        {
             *error = "start payload truncated";
         }
         return false;

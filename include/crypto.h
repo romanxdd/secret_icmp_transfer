@@ -7,18 +7,20 @@
 #include <string>
 #include <vector>
 
-namespace crypto {
+namespace crypto
+{
 
-constexpr std::size_t AES256_KEY_SIZE = 32u;
-constexpr std::size_t AES_BLOCK_SIZE = 16u;
+  constexpr std::size_t AES256_KEY_SIZE = 32u;
+  constexpr std::size_t AES_BLOCK_SIZE = 16u;
 
-using Key = std::array<uint8_t, AES256_KEY_SIZE>;
-using Iv = std::array<uint8_t, AES_BLOCK_SIZE>;
+  using Key = std::array<uint8_t, AES256_KEY_SIZE>;
+  using Iv = std::array<uint8_t, AES_BLOCK_SIZE>;
 
-bool deriveKeyFromLogin(const std::string &login, Key &key);
-bool generateRandomIv(Iv &iv, std::string *error = nullptr);
+  bool deriveKeyFromLogin(const std::string &login, Key &key);
+  bool generateRandomIv(Iv &iv, std::string *error = nullptr);
 
-class Aes256CbcEncryptor {
+  class Aes256CbcEncryptor
+  {
   public:
     Aes256CbcEncryptor();
     ~Aes256CbcEncryptor();
@@ -35,9 +37,10 @@ class Aes256CbcEncryptor {
 
     void *ctx_ = nullptr;
     bool ready_ = false;
-};
+  };
 
-class Aes256CbcDecryptor {
+  class Aes256CbcDecryptor
+  {
   public:
     Aes256CbcDecryptor();
     ~Aes256CbcDecryptor();
@@ -54,7 +57,7 @@ class Aes256CbcDecryptor {
 
     void *ctx_ = nullptr;
     bool ready_ = false;
-};
+  };
 
 } // namespace crypto
 

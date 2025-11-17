@@ -10,47 +10,52 @@
 #include <string>
 #include <vector>
 
-namespace receiver {
+namespace receiver
+{
+    struct ReassemblyState
+    {
+        bool hasStart = false;
+        bool hasEnd = false;
+        uint32_t transferId = 0;
+        uint32_t totalPackets = 0;
+        uint32_t receivedPackets = 0;
+        uint64_t fileSize = 0;
+        uint64_t receivedBytes = 0;
+        crypto::Iv iv{};
+        std::string fileName;
+        std::vector<std::vector<uint8_t>> chunks;
+        std::vector<bool> receivedFlags;
+    };
 
-struct ReassemblyState {
-    bool hasStart = false;
-    bool hasEnd = false;
-    uint32_t transferId = 0;
-    uint32_t totalPackets = 0;
-    uint32_t receivedPackets = 0;
-    uint64_t fileSize = 0;
-  uint64_t receivedBytes = 0;
-    crypto::Iv iv{};
-    std::string fileName;
-    std::vector<std::vector<uint8_t>> chunks;
-    std::vector<bool> receivedFlags;
-};
+    class PacketReassembler
+    {
+    public:
+        bool handleStart(
+            const protocol::PacketHeader &header,
+            const protocol::StartPacketPayload &payload,
+            std::string &errorMessage);
 
-class PacketReassembler {
-  public:
-    bool handleStart(const protocol::PacketHeader &header,
-                     const protocol::StartPacketPayload &payload,
-                     std::string &errorMessage);
+        bool handleData(
+            const protocol::PacketHeader &header,
+            const uint8_t *payload, std::size_t length,
+            std::string &errorMessage);
 
-    bool handleData(const protocol::PacketHeader &header,
-                    const uint8_t *payload, std::size_t length,
-                    std::string &errorMessage);
+        bool handleEnd(const protocol::PacketHeader &header, std::string &errorMessage);
 
-    bool handleEnd(const protocol::PacketHeader &header, std::string &errorMessage);
+        bool isComplete() const;
 
-    bool isComplete() const;
+        std::vector<uint8_t> assembleCiphertext() const;
 
-    std::vector<uint8_t> assembleCiphertext() const;
+        const ReassemblyState &state() const { return state_; }
 
-    const ReassemblyState &state() const { return state_; }
-
-  private:
-    ReassemblyState state_;
-};
+    private:
+        ReassemblyState state_;
+    };
 
 } // namespace receiver
 
-struct ReceiverStats {
+struct ReceiverStats
+{
     std::size_t packetsCaptured = 0;
     std::size_t startPackets = 0;
     std::size_t dataPackets = 0;

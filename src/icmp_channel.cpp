@@ -18,45 +18,52 @@
 #include <memory>
 #include <vector>
 
-namespace {
+namespace
+{
 
-uint16_t computeChecksum(const void *data, std::size_t length) {
-    const uint8_t *bytes = static_cast<const uint8_t *>(data);
-    uint32_t sum = 0;
+    uint16_t computeChecksum(const void *data, std::size_t length)
+    {
+        const uint8_t *bytes = static_cast<const uint8_t *>(data);
+        uint32_t sum = 0;
 
-    std::size_t remaining = length;
-    while (remaining > 1) {
-        sum += static_cast<uint16_t>(bytes[0] << 8 | bytes[1]);
-        bytes += 2;
-        remaining -= 2;
+        std::size_t remaining = length;
+        while (remaining > 1)
+        {
+            sum += static_cast<uint16_t>(bytes[0] << 8 | bytes[1]);
+            bytes += 2;
+            remaining -= 2;
+        }
+
+        if (remaining == 1)
+        {
+            sum += static_cast<uint16_t>(bytes[0] << 8);
+        }
+
+        while (sum >> 16)
+        {
+            sum = (sum & 0xFFFFu) + (sum >> 16);
+        }
+
+        return static_cast<uint16_t>(~sum & 0xFFFFu);
     }
-
-    if (remaining == 1) {
-        sum += static_cast<uint16_t>(bytes[0] << 8);
-    }
-
-    while (sum >> 16) {
-        sum = (sum & 0xFFFFu) + (sum >> 16);
-    }
-
-    return static_cast<uint16_t>(~sum & 0xFFFFu);
-}
 
 } // namespace
 
 Icmpv4Channel::Icmpv4Channel(int socketFd, const sockaddr_in &destination, bool verbose, uint16_t identifier)
     : socketFd_(socketFd), destination_(destination), verbose_(verbose), identifier_(identifier) {}
 
-Icmpv4Channel::~Icmpv4Channel() {
-    if (socketFd_ >= 0) {
+Icmpv4Channel::~Icmpv4Channel()
+{
+    if (socketFd_ >= 0)
+    {
         ::close(socketFd_);
         socketFd_ = -1;
     }
 }
 
-std::unique_ptr<Icmpv4Channel> Icmpv4Channel::create(const std::string &destination,
-                                                      bool verbose,
-                                                      std::string &errorMessage) {
+std::unique_ptr<Icmpv4Channel> Icmpv4Channel::create(
+    const std::string &destination, bool verbose, std::string &errorMessage)
+{
     struct addrinfo hints;
     std::memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
@@ -65,7 +72,8 @@ std::unique_ptr<Icmpv4Channel> Icmpv4Channel::create(const std::string &destinat
 
     struct addrinfo *result = nullptr;
     const int rc = ::getaddrinfo(destination.c_str(), nullptr, &hints, &result);
-    if (rc != 0) {
+    if (rc != 0)
+    {
         errorMessage = std::string("getaddrinfo failed: ") + ::gai_strerror(rc);
         return nullptr;
     }
@@ -73,12 +81,15 @@ std::unique_ptr<Icmpv4Channel> Icmpv4Channel::create(const std::string &destinat
     int socketFd = -1;
     sockaddr_in destAddr{};
 
-    for (struct addrinfo *ai = result; ai != nullptr; ai = ai->ai_next) {
-        if (ai->ai_family != AF_INET || ai->ai_addrlen < static_cast<socklen_t>(sizeof(sockaddr_in))) {
+    for (struct addrinfo *ai = result; ai != nullptr; ai = ai->ai_next)
+    {
+        if (ai->ai_family != AF_INET || ai->ai_addrlen < static_cast<socklen_t>(sizeof(sockaddr_in)))
+        {
             continue;
         }
         socketFd = ::socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-        if (socketFd < 0) {
+        if (socketFd < 0)
+        {
             errorMessage = std::string("socket creation failed: ") + ::strerror(errno);
             continue;
         }
@@ -89,8 +100,10 @@ std::unique_ptr<Icmpv4Channel> Icmpv4Channel::create(const std::string &destinat
 
     ::freeaddrinfo(result);
 
-    if (socketFd < 0) {
-        if (errorMessage.empty()) {
+    if (socketFd < 0)
+    {
+        if (errorMessage.empty())
+        {
             errorMessage = "unable to resolve destination";
         }
         return nullptr;
@@ -103,16 +116,18 @@ std::unique_ptr<Icmpv4Channel> Icmpv4Channel::create(const std::string &destinat
 Icmpv6Channel::Icmpv6Channel(int socketFd, const sockaddr_in6 &destination, bool verbose, uint16_t identifier)
     : socketFd_(socketFd), destination_(destination), verbose_(verbose), identifier_(identifier) {}
 
-Icmpv6Channel::~Icmpv6Channel() {
-    if (socketFd_ >= 0) {
+Icmpv6Channel::~Icmpv6Channel()
+{
+    if (socketFd_ >= 0)
+    {
         ::close(socketFd_);
         socketFd_ = -1;
     }
 }
 
-std::unique_ptr<Icmpv6Channel> Icmpv6Channel::create(const std::string &destination,
-                                                      bool verbose,
-                                                      std::string &errorMessage) {
+std::unique_ptr<Icmpv6Channel> Icmpv6Channel::create(
+    const std::string &destination, bool verbose, std::string &errorMessage)
+{
     struct addrinfo hints;
     std::memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET6;
@@ -121,7 +136,8 @@ std::unique_ptr<Icmpv6Channel> Icmpv6Channel::create(const std::string &destinat
 
     struct addrinfo *result = nullptr;
     const int rc = ::getaddrinfo(destination.c_str(), nullptr, &hints, &result);
-    if (rc != 0) {
+    if (rc != 0)
+    {
         errorMessage = std::string("getaddrinfo failed: ") + ::gai_strerror(rc);
         return nullptr;
     }
@@ -129,12 +145,15 @@ std::unique_ptr<Icmpv6Channel> Icmpv6Channel::create(const std::string &destinat
     int socketFd = -1;
     sockaddr_in6 destAddr{};
 
-    for (struct addrinfo *ai = result; ai != nullptr; ai = ai->ai_next) {
-        if (ai->ai_family != AF_INET6 || ai->ai_addrlen < static_cast<socklen_t>(sizeof(sockaddr_in6))) {
+    for (struct addrinfo *ai = result; ai != nullptr; ai = ai->ai_next)
+    {
+        if (ai->ai_family != AF_INET6 || ai->ai_addrlen < static_cast<socklen_t>(sizeof(sockaddr_in6)))
+        {
             continue;
         }
         socketFd = ::socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
-        if (socketFd < 0) {
+        if (socketFd < 0)
+        {
             errorMessage = std::string("socket creation failed: ") + ::strerror(errno);
             continue;
         }
@@ -146,8 +165,10 @@ std::unique_ptr<Icmpv6Channel> Icmpv6Channel::create(const std::string &destinat
 
     ::freeaddrinfo(result);
 
-    if (socketFd < 0) {
-        if (errorMessage.empty()) {
+    if (socketFd < 0)
+    {
+        if (errorMessage.empty())
+        {
             errorMessage = "unable to resolve destination";
         }
         return nullptr;
@@ -157,22 +178,25 @@ std::unique_ptr<Icmpv6Channel> Icmpv6Channel::create(const std::string &destinat
     return std::unique_ptr<Icmpv6Channel>(new Icmpv6Channel(socketFd, destAddr, verbose, identifier));
 }
 
-bool Icmpv6Channel::sendPacket(const protocol::PacketHeader &header,
-                               const std::vector<uint8_t> &payload,
-                               std::string &errorMessage) {
-    if (socketFd_ < 0) {
+bool Icmpv6Channel::sendPacket(
+    const protocol::PacketHeader &header, const std::vector<uint8_t> &payload, std::string &errorMessage)
+{
+    if (socketFd_ < 0)
+    {
         errorMessage = "ICMPv6 channel is not initialized";
         return false;
     }
 
-    if (payload.size() > std::numeric_limits<uint16_t>::max()) {
+    if (payload.size() > std::numeric_limits<uint16_t>::max())
+    {
         errorMessage = "payload too large for ICMPv6";
         return false;
     }
 
     const auto headerBytes = protocol::serializeHeader(header);
 
-    if (header.payloadLength != payload.size()) {
+    if (header.payloadLength != payload.size())
+    {
         errorMessage = "payload length mismatch";
         return false;
     }
@@ -189,19 +213,22 @@ bool Icmpv6Channel::sendPacket(const protocol::PacketHeader &header,
     icmpHeader->icmp6_seq = htons(static_cast<uint16_t>(header.sequenceNumber & 0xFFFFu));
 
     std::memcpy(buffer.data() + icmpSize, headerBytes.data(), headerBytes.size());
-    if (!payload.empty()) {
+    if (!payload.empty())
+    {
         std::memcpy(buffer.data() + icmpSize + headerBytes.size(), payload.data(), payload.size());
     }
 
     const ssize_t bytesSent = ::sendto(socketFd_, buffer.data(), buffer.size(), 0,
                                        reinterpret_cast<struct sockaddr *>(&destination_),
                                        sizeof(destination_));
-    if (bytesSent < 0 || static_cast<std::size_t>(bytesSent) != buffer.size()) {
+    if (bytesSent < 0 || static_cast<std::size_t>(bytesSent) != buffer.size())
+    {
         errorMessage = std::string("sendto failed: ") + ::strerror(errno);
         return false;
     }
 
-    if (verbose_) {
+    if (verbose_)
+    {
         std::cout << "Sent ICMPv6 packet type=" << static_cast<int>(header.type)
                   << " seq=" << header.sequenceNumber
                   << " bytes=" << buffer.size() << std::endl;
@@ -210,22 +237,25 @@ bool Icmpv6Channel::sendPacket(const protocol::PacketHeader &header,
     return true;
 }
 
-bool Icmpv4Channel::sendPacket(const protocol::PacketHeader &header,
-                               const std::vector<uint8_t> &payload,
-                               std::string &errorMessage) {
-    if (socketFd_ < 0) {
+bool Icmpv4Channel::sendPacket(
+    const protocol::PacketHeader &header, const std::vector<uint8_t> &payload, std::string &errorMessage)
+{
+    if (socketFd_ < 0)
+    {
         errorMessage = "ICMP channel is not initialized";
         return false;
     }
 
-    if (payload.size() > std::numeric_limits<uint16_t>::max()) {
+    if (payload.size() > std::numeric_limits<uint16_t>::max())
+    {
         errorMessage = "payload too large for ICMP";
         return false;
     }
 
     const auto headerBytes = protocol::serializeHeader(header);
 
-    if (header.payloadLength != payload.size()) {
+    if (header.payloadLength != payload.size())
+    {
         errorMessage = "payload length mismatch";
         return false;
     }
@@ -242,7 +272,8 @@ bool Icmpv4Channel::sendPacket(const protocol::PacketHeader &header,
     icmpHeader->un.echo.sequence = htons(static_cast<uint16_t>(header.sequenceNumber & 0xFFFFu));
 
     std::memcpy(buffer.data() + icmpSize, headerBytes.data(), headerBytes.size());
-    if (!payload.empty()) {
+    if (!payload.empty())
+    {
         std::memcpy(buffer.data() + icmpSize + headerBytes.size(), payload.data(), payload.size());
     }
 
@@ -252,12 +283,14 @@ bool Icmpv4Channel::sendPacket(const protocol::PacketHeader &header,
     const ssize_t bytesSent = ::sendto(socketFd_, buffer.data(), buffer.size(), 0,
                                        reinterpret_cast<struct sockaddr *>(&destination_),
                                        sizeof(destination_));
-    if (bytesSent < 0 || static_cast<std::size_t>(bytesSent) != buffer.size()) {
+    if (bytesSent < 0 || static_cast<std::size_t>(bytesSent) != buffer.size())
+    {
         errorMessage = std::string("sendto failed: ") + ::strerror(errno);
         return false;
     }
 
-    if (verbose_) {
+    if (verbose_)
+    {
         std::cout << "Sent ICMP packet type=" << static_cast<int>(header.type)
                   << " seq=" << header.sequenceNumber
                   << " bytes=" << buffer.size() << std::endl;
