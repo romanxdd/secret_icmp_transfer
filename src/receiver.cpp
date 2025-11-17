@@ -43,12 +43,12 @@ bool ensureLoginProvided(const AppConfig &config, std::string &errorMessage)
     return true;
 }
 
-/// decrypt all the encrypted filename metadata using the metadata iv
 bool decryptFileName(
     protocol::StartPacketPayload &payload,
     const crypto::Key            &key,
     std::string                  &errorMessage)
 {
+    // decrypt all the encrypted filename metadata using the metadata iv
     if (payload.encryptedFileName.empty())
     {
         errorMessage = "start packet missing encrypted filename";
@@ -486,12 +486,13 @@ bool decryptToFile(
 namespace receiver
 {
 
-/// record metadata from the start packet and prep chunk buffers
 bool PacketReassembler::handleStart(
     const protocol::PacketHeader       &header,
     const protocol::StartPacketPayload &payload,
     std::string                        &errorMessage)
 {
+    // record metadata from the start packet and prep chunk buffers
+
     if (state_.hasStart)
     {
         if (header.transferId != state_.transferId)
@@ -520,13 +521,14 @@ bool PacketReassembler::handleStart(
     return true;
 }
 
-/// stash each ciphertext chunk, tracking duplicates and totals
 bool PacketReassembler::handleData(
     const protocol::PacketHeader &header,
     const uint8_t                *payload,
     std::size_t                   length,
     std::string                  &errorMessage)
 {
+    // stash each ciphertext chunk, tracking duplicates and totals
+
     if (!state_.hasStart)
     {
         return false;
@@ -556,9 +558,10 @@ bool PacketReassembler::handleData(
     return true;
 }
 
-/// mark transfer finished once matching end packet arrives
 bool PacketReassembler::handleEnd(const protocol::PacketHeader &header, std::string &errorMessage)
 {
+    // mark transfer finished once matching end packet arrives
+
     if (!state_.hasStart)
     {
         return false;
@@ -598,9 +601,10 @@ std::vector<uint8_t> PacketReassembler::assembleCiphertext() const
 
 } // namespace receiver
 
-/// main receiver loop: capture icmp, reassemble, decrypt, and write file
 bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &errorMessage)
 {
+    // main receiver loop: capture icmp, reassemble, decrypt, and write file
+
     // resetting stats for any left overs, which shoudlnt happen tho
     stats = ReceiverStats{};
 

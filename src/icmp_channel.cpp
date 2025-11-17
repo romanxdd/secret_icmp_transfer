@@ -76,13 +76,14 @@ Icmpv4Channel::~Icmpv4Channel()
     }
 }
 
-/// resolve the destination and create a raw icmpv4 socket
-// [ref]:
-//  https://linux.die.net/man/3/getaddrinfo
-//  https://linux.die.net/man/2/socket
 std::unique_ptr<Icmpv4Channel> Icmpv4Channel::create(
     const std::string &destination, bool verbose, std::string &errorMessage)
 {
+    /// resolve the destination and create a raw icmpv4 socket
+    // [ref]:
+    //  https://linux.die.net/man/3/getaddrinfo
+    //  https://linux.die.net/man/2/socket
+
     struct addrinfo hints;
     std::memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
@@ -135,13 +136,14 @@ std::unique_ptr<Icmpv4Channel> Icmpv4Channel::create(
     return std::unique_ptr<Icmpv4Channel>(new Icmpv4Channel(socketFd, destAddr, verbose, identifier));
 }
 
-/// craft and send an icmpv4 echo packet with the protocol payload
-// [ref] https://linux.die.net/man/2/sendto
 bool Icmpv4Channel::sendPacket(
     const protocol::PacketHeader &header,
     const std::vector<uint8_t>   &payload,
     std::string                  &errorMessage)
 {
+    /// craft and send an icmpv4 echo packet with the protocol payload
+    // [ref] https://linux.die.net/man/2/sendto
+
     if (socketFd_ < 0)
     {
         errorMessage = "ICMP channel is not initialized";
@@ -224,13 +226,14 @@ Icmpv6Channel::~Icmpv6Channel()
     }
 }
 
-/// resolve the destination and create a raw icmpv6 socket
-// [ref]:
-//  https://linux.die.net/man/3/getaddrinfo
-//  https://linux.die.net/man/2/socket
 std::unique_ptr<Icmpv6Channel> Icmpv6Channel::create(
     const std::string &destination, bool verbose, std::string &errorMessage)
 {
+    /// resolve the destination and create a raw icmpv6 socket
+    // [ref]:
+    //  https://linux.die.net/man/3/getaddrinfo
+    //  https://linux.die.net/man/2/socket
+
     struct addrinfo hints;
     std::memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET6;
@@ -284,13 +287,14 @@ std::unique_ptr<Icmpv6Channel> Icmpv6Channel::create(
     return std::unique_ptr<Icmpv6Channel>(new Icmpv6Channel(socketFd, destAddr, verbose, identifier));
 }
 
-/// craft and send an icmpv6 echo packet with the protocol payload
-// [ref] https://linux.die.net/man/2/sendto
 bool Icmpv6Channel::sendPacket(
     const protocol::PacketHeader &header,
     const std::vector<uint8_t>   &payload,
     std::string                  &errorMessage)
 {
+    /// craft and send an icmpv6 echo packet with the protocol payload
+    // [ref] https://linux.die.net/man/2/sendto
+
     if (socketFd_ < 0)
     {
         errorMessage = "ICMPv6 channel is not initialized";

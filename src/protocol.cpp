@@ -63,21 +63,22 @@ uint64_t networkToHost64(uint64_t value)
 namespace protocol
 {
 
-/// confirming this header belongs to my protocol stream
 bool PacketHeader::hasValidMagic() const
 {
+    // confirming this header belongs to my protocol stream
     return magic == MAGIC;
 }
 
-/// guarding against receivers from older protocol versions
 bool PacketHeader::hasExpectedVersion() const
 {
+    // guarding against receivers from other protocol versions
     return version == VERSION;
 }
 
-/// packing the header into network byte order for transmission
 std::array<uint8_t, HEADER_SIZE> serializeHeader(const PacketHeader &header)
 {
+    // packing the header into network byte order for transmission
+
     std::array<uint8_t, HEADER_SIZE> buffer{};
 
     const uint32_t magicNetwork = htonl(header.magic);
@@ -107,9 +108,10 @@ std::array<uint8_t, HEADER_SIZE> serializeHeader(const PacketHeader &header)
     return buffer;
 }
 
-/// unpacking bytes from the wire back into a header struct
 bool deserializeHeader(const uint8_t *buffer, std::size_t length, PacketHeader &header)
 {
+    // unpacking bytes from the wire back into a header struct
+
     if (buffer == nullptr || length < HEADER_SIZE)
     {
         return false;
@@ -147,9 +149,10 @@ bool deserializeHeader(const uint8_t *buffer, std::size_t length, PacketHeader &
     return header.hasValidMagic();
 }
 
-/// encoding the startpacket metadata and encrypted filename into a payload blob
 bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> &out, std::string *error)
 {
+    // encoding the startpacket metadata and encrypted filename into a payload blob
+
     if (payload.fileNameLength > MAX_FILENAME_LENGTH)
     {
         if (error)
@@ -193,9 +196,10 @@ bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> 
     return true;
 }
 
-/// read startpacket payload and recover structured fields - no decrypt yet
 bool decodeStartPayload(const uint8_t *data, std::size_t length, StartPacketPayload &out, std::string *error)
 {
+    /// read startpacket payload and recover structured fields - no decrypt yet
+
     // header must contain fixed bytes: name len, flags, filesize, two ivs, and ciphertext length
     const std::size_t minimum = 2u + sizeof(uint64_t) + (2 * IV_LENGTH) + sizeof(uint16_t);
     if (data == nullptr || length < minimum)

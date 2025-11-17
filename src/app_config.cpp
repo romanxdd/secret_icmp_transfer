@@ -40,9 +40,11 @@ bool parseChunkSize(const char *argument, std::size_t &out, std::string &errorMe
 
 } // namespace
 
-/// parse cli flags, returning errors to the caller
+
 bool parseCommandLine(int argc, char **argv, AppConfig &config, std::string &errorMessage)
 {
+    // parse cli flags, returning errors to the caller
+
     config = AppConfig{};
     ::optind = 1;
     int option = 0;
@@ -136,9 +138,9 @@ bool parseCommandLine(int argc, char **argv, AppConfig &config, std::string &err
     return true;
 }
 
-/// pretty self-explanatory i think
 void printUsage(const char *programName, std::ostream &os)
 {
+    /// pretty self-explanatory i think
     os << "Usage: " << (programName ? programName : "secret")
        << " -r <file> -s <ip|hostname> [options]\n"
        << "       " << (programName ? programName : "secret") << " -l [options]\n\n"
