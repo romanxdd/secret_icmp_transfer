@@ -23,6 +23,8 @@ enum class DestinationFamily
     IPv6
 };
 
+/// figuring out if the destination resolves to ipv4 or ipv6
+// [ref] https://linux.die.net/man/3/getaddrinfo
 bool resolveDestinationFamily(const AppConfig &config, DestinationFamily &family, std::string &errorMessage)
 {
     struct addrinfo hints;
@@ -72,6 +74,7 @@ bool resolveDestinationFamily(const AppConfig &config, DestinationFamily &family
     return false;
 }
 
+/// build an icmp channel matching the resolved destination family
 std::unique_ptr<OutboundChannel> createOutboundChannel(const AppConfig &config, std::string &errorMessage)
 {
     DestinationFamily family;
@@ -87,6 +90,7 @@ std::unique_ptr<OutboundChannel> createOutboundChannel(const AppConfig &config, 
     return Icmpv6Channel::create(config.destination, config.verbose, errorMessage);
 }
 
+/// print a summary of the parsed configuration
 void emitConfigurationSummary(const AppConfig &config)
 {
     if (config.listenMode)
@@ -114,6 +118,7 @@ int main(int argc, char **argv)
 {
     AppConfig config;
     std::string errorMessage;
+    // parse flags and bail with usage if invalid
     if (!parseCommandLine(argc, argv, config, errorMessage))
     {
         if (!errorMessage.empty())
@@ -130,10 +135,12 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    // echo the parsed config for user
     emitConfigurationSummary(config);
 
     if (config.listenMode)
     {
+        // receiver path: capture packets and write output
         ReceiverStats receiverStats;
         std::string receiverError;
         if (!runReceiver(config, receiverStats, receiverError))
@@ -150,6 +157,7 @@ int main(int argc, char **argv)
     }
     else
     {
+        // sender path: build channel then stream file blocks
         std::string channelError;
         auto channel = createOutboundChannel(config, channelError);
         if (!channel)

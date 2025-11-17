@@ -17,6 +17,7 @@
 namespace
 {
 
+/// parse the -c argument into a sane chunk size range
 bool parseChunkSize(const char *argument, std::size_t &out, std::string &errorMessage)
 {
     try
@@ -39,6 +40,7 @@ bool parseChunkSize(const char *argument, std::size_t &out, std::string &errorMe
 
 } // namespace
 
+/// parse cli flags, returning errors to the caller
 bool parseCommandLine(int argc, char **argv, AppConfig &config, std::string &errorMessage)
 {
     config = AppConfig{};
@@ -134,6 +136,7 @@ bool parseCommandLine(int argc, char **argv, AppConfig &config, std::string &err
     return true;
 }
 
+/// pretty self-explanatory i think
 void printUsage(const char *programName, std::ostream &os)
 {
     os << "Usage: " << (programName ? programName : "secret")

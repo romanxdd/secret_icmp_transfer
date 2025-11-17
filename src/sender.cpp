@@ -27,6 +27,7 @@ namespace
 class FileHandle
 {
 public:
+    // opening file in ctor and closing in dtor so it's always released
     explicit FileHandle(const std::string &path) : fd_(::open(path.c_str(), O_RDONLY)) {}
     ~FileHandle()
     {
@@ -46,6 +47,7 @@ private:
     int fd_ = -1;
 };
 
+/// producing a random 32-bit transfer identifier for correlating packets
 uint32_t generateTransferId()
 {
     std::random_device rd;
@@ -54,6 +56,8 @@ uint32_t generateTransferId()
     return dist(rng);
 }
 
+/// checking file existence and saving size
+// [ref] https://www.ibm.com/docs/en/i/7.4.0?topic=ssw_ibm_i_74/apis/stat.htm
 bool readFileStat(const std::string &path, off_t &size, std::string &errorMessage)
 {
     struct stat st = {};
@@ -71,6 +75,7 @@ bool readFileStat(const std::string &path, off_t &size, std::string &errorMessag
     return true;
 }
 
+/// extracting filename for metadata encryption
 std::string basenameFromPath(const std::string &path)
 {
     const auto pos = path.find_last_of("/\\");
@@ -81,6 +86,7 @@ std::string basenameFromPath(const std::string &path)
     return path.substr(pos + 1);
 }
 
+/// filling and shipping the start packet with metadata and encrypted filename
 bool sendStartPacket(
     OutboundChannel                    &channel,
     const protocol::StartPacketPayload &payload,
@@ -117,6 +123,7 @@ bool sendStartPacket(
     return true;
 }
 
+/// filling and shipping encrypted data chunk packet
 bool sendDataPacket(
     OutboundChannel            &channel,
     const std::vector<uint8_t> &chunk,
@@ -140,6 +147,7 @@ bool sendDataPacket(
     return channel.sendPacket(header, chunk, errorMessage);
 }
 
+/// signaling completion of transfer with END packet
 bool sendEndPacket(
     OutboundChannel &channel,
     uint32_t        transferId,
@@ -159,6 +167,7 @@ bool sendEndPacket(
 
 } // namespace
 
+
 bool runSender(
     const AppConfig &config,
     SenderStats     &stats,
@@ -173,6 +182,7 @@ bool runSender(
         return false;
     }
 
+    // verifying src file and getting size for stats
     off_t fileSize = 0;
     if (!readFileStat(config.sourcePath, fileSize, errorMessage))
     {
@@ -187,6 +197,7 @@ bool runSender(
     }
 
     crypto::Key key{};
+    // getting key from login string shared with receiver
     if (!crypto::deriveKeyFromLogin(config.login, key))
     {
         errorMessage = "failed to derive AES key";
@@ -194,12 +205,14 @@ bool runSender(
     }
 
     crypto::Iv iv{};
+    // generating fresh iv for data stream
     if (!crypto::generateRandomIv(iv, &errorMessage))
     {
         return false;
     }
 
     crypto::Aes256CbcEncryptor encryptor;
+    // encrypting file contents chunk by chunk
     if (!encryptor.init(key, iv, &errorMessage))
     {
         return false;
@@ -219,6 +232,7 @@ bool runSender(
     uint32_t transferId = generateTransferId();
     uint32_t totalPackets = 0;
 
+    // staging encrypted chunks before transmission for easier header planning
     std::vector<std::vector<uint8_t>> encryptedChunks;
     encryptedChunks.reserve(static_cast<std::size_t>((fileSize / chunkSize) + 2));
 
@@ -246,6 +260,7 @@ bool runSender(
 
         while (cipherBuffer.size() >= chunkSize)
         {
+            // emit full chunks as soon as enough ciphertext accumulates
             chunkPayload.assign(cipherBuffer.begin(), cipherBuffer.begin() + chunkSize);
             cipherBuffer.erase(cipherBuffer.begin(), cipherBuffer.begin() + chunkSize);
             encryptedChunks.emplace_back(chunkPayload);
@@ -259,6 +274,7 @@ bool runSender(
 
     while (!cipherBuffer.empty())
     {
+        // flush remainder shorter than chunk size
         const std::size_t emitSize = std::min(chunkSize, cipherBuffer.size());
         chunkPayload.assign(cipherBuffer.begin(), cipherBuffer.begin() + emitSize);
         cipherBuffer.erase(cipherBuffer.begin(), cipherBuffer.begin() + emitSize);
@@ -268,6 +284,7 @@ bool runSender(
     totalPackets = static_cast<uint32_t>(encryptedChunks.size());
 
     crypto::Iv metadataIv{};
+    // independent iv for encrypted metadata
     if (!crypto::generateRandomIv(metadataIv, &errorMessage))
     {
         return false;
@@ -292,6 +309,7 @@ bool runSender(
     }
 
     protocol::StartPacketPayload startPayload;
+    // fill start payload fields before encoding
     startPayload.flags = 0;
     startPayload.fileSize = static_cast<uint64_t>(fileSize);
     startPayload.iv = iv;

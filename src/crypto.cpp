@@ -16,11 +16,13 @@
 namespace
 {
 
+/// reinterpreting helper so i can store ctx as void*
 EVP_CIPHER_CTX *asCtx(void *ptr)
 {
     return static_cast<EVP_CIPHER_CTX *>(ptr);
 }
 
+/// pull the latest openssl error message into a string
 std::string popOpenSslError()
 {
     unsigned long code = ERR_get_error();
@@ -33,6 +35,7 @@ std::string popOpenSslError()
     return std::string(buf);
 }
 
+/// allocate an evp ctx if its missing
 bool ensureCtxAllocated(void *&ctx, std::string *error)
 {
     if (ctx != nullptr)
@@ -52,6 +55,7 @@ bool ensureCtxAllocated(void *&ctx, std::string *error)
     return true;
 }
 
+/// append a produced block of bytes to the destination buffer
 bool appendBlock(std::vector<uint8_t> &out, const uint8_t *buffer, int length, std::string *error)
 {
     if (length < 0)
@@ -77,6 +81,7 @@ bool appendBlock(std::vector<uint8_t> &out, const uint8_t *buffer, int length, s
 namespace crypto
 {
 
+/// derive aes key bytes from the provided login using sha-256
 bool deriveKeyFromLogin(const std::string &login, Key &key)
 {
     const unsigned char *input = reinterpret_cast<const unsigned char *>(login.c_str());
@@ -86,6 +91,7 @@ bool deriveKeyFromLogin(const std::string &login, Key &key)
     return true;
 }
 
+/// fill the provided iv with random bytes
 bool generateRandomIv(Iv &iv, std::string *error)
 {
     if (RAND_bytes(iv.data(), static_cast<int>(iv.size())) != 1)
@@ -99,13 +105,14 @@ bool generateRandomIv(Iv &iv, std::string *error)
     return true;
 }
 
-Aes256CbcEncryptor::Aes256CbcEncryptor() = default;
 
+Aes256CbcEncryptor::Aes256CbcEncryptor() = default;
 Aes256CbcEncryptor::~Aes256CbcEncryptor()
 {
     reset();
 }
 
+/// drop any existing context and reset ready
 void Aes256CbcEncryptor::reset()
 {
     if (ctx_ != nullptr)
@@ -116,6 +123,7 @@ void Aes256CbcEncryptor::reset()
     ready_ = false;
 }
 
+/// initialize the encryptor with a key and iv
 bool Aes256CbcEncryptor::init(const Key &key, const Iv &iv, std::string *error)
 {
     reset();
@@ -139,6 +147,7 @@ bool Aes256CbcEncryptor::init(const Key &key, const Iv &iv, std::string *error)
     return true;
 }
 
+/// encrypt the next chunk of plaintext into the output buffer
 bool Aes256CbcEncryptor::update(const uint8_t *data, std::size_t length, std::vector<uint8_t> &out, std::string *error)
 {
     if (!ready_)
@@ -169,6 +178,7 @@ bool Aes256CbcEncryptor::update(const uint8_t *data, std::size_t length, std::ve
     return appendBlock(out, buffer.data(), produced, error);
 }
 
+/// finish the encryption stream and flush padding
 bool Aes256CbcEncryptor::finalize(std::vector<uint8_t> &out, std::string *error)
 {
     if (!ready_)
@@ -198,13 +208,14 @@ bool Aes256CbcEncryptor::finalize(std::vector<uint8_t> &out, std::string *error)
     return ok;
 }
 
-Aes256CbcDecryptor::Aes256CbcDecryptor() = default;
 
+Aes256CbcDecryptor::Aes256CbcDecryptor() = default;
 Aes256CbcDecryptor::~Aes256CbcDecryptor()
 {
     reset();
 }
 
+/// drop any existing context and reset ready
 void Aes256CbcDecryptor::reset()
 {
     if (ctx_ != nullptr)
@@ -215,6 +226,7 @@ void Aes256CbcDecryptor::reset()
     ready_ = false;
 }
 
+/// initialize the decryptor with a key and iv
 bool Aes256CbcDecryptor::init(const Key &key, const Iv &iv, std::string *error)
 {
     reset();
@@ -238,6 +250,7 @@ bool Aes256CbcDecryptor::init(const Key &key, const Iv &iv, std::string *error)
     return true;
 }
 
+/// decrypt another ciphertext block sequence into plaintext
 bool Aes256CbcDecryptor::update(const uint8_t *data, std::size_t length, std::vector<uint8_t> &out, std::string *error)
 {
     if (!ready_)
@@ -268,6 +281,7 @@ bool Aes256CbcDecryptor::update(const uint8_t *data, std::size_t length, std::ve
     return appendBlock(out, buffer.data(), produced, error);
 }
 
+/// finalize the stream and strip padding bytes
 bool Aes256CbcDecryptor::finalize(std::vector<uint8_t> &out, std::string *error)
 {
     if (!ready_)

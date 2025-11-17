@@ -20,6 +20,7 @@ constexpr bool kHostIsLittleEndian = true;
 constexpr bool kHostIsLittleEndian = false;
 #endif
 
+/// convert 64-bit value to network byte order
 uint64_t hostToNetwork64(uint64_t value)
 {
     if constexpr (kHostIsLittleEndian)
@@ -51,6 +52,7 @@ uint64_t hostToNetwork64(uint64_t value)
     return value;
 }
 
+/// same transform reverses for big-endian retrieval
 uint64_t networkToHost64(uint64_t value)
 {
     return hostToNetwork64(value);
@@ -61,16 +63,19 @@ uint64_t networkToHost64(uint64_t value)
 namespace protocol
 {
 
+/// confirming this header belongs to my protocol stream
 bool PacketHeader::hasValidMagic() const
 {
     return magic == MAGIC;
 }
 
+/// guarding against receivers from older protocol versions
 bool PacketHeader::hasExpectedVersion() const
 {
     return version == VERSION;
 }
 
+/// packing the header into network byte order for transmission
 std::array<uint8_t, HEADER_SIZE> serializeHeader(const PacketHeader &header)
 {
     std::array<uint8_t, HEADER_SIZE> buffer{};
@@ -102,6 +107,7 @@ std::array<uint8_t, HEADER_SIZE> serializeHeader(const PacketHeader &header)
     return buffer;
 }
 
+/// unpacking bytes from the wire back into a header struct
 bool deserializeHeader(const uint8_t *buffer, std::size_t length, PacketHeader &header)
 {
     if (buffer == nullptr || length < HEADER_SIZE)
@@ -141,6 +147,7 @@ bool deserializeHeader(const uint8_t *buffer, std::size_t length, PacketHeader &
     return header.hasValidMagic();
 }
 
+/// encoding the startpacket metadata and encrypted filename into a payload blob
 bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> &out, std::string *error)
 {
     if (payload.fileNameLength > MAX_FILENAME_LENGTH)
@@ -168,10 +175,12 @@ bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> 
     out.push_back(payload.fileNameLength);
     out.push_back(payload.flags);
 
+    // store filesize as big-endian so both endpoints agree on byte count
     const uint64_t fileSizeNetwork = hostToNetwork64(payload.fileSize);
     const auto *fileSizeBytes = reinterpret_cast<const uint8_t *>(&fileSizeNetwork);
     out.insert(out.end(), fileSizeBytes, fileSizeBytes + sizeof(fileSizeNetwork));
 
+    // layout data iv followed by metadata iv so receiver can decrypt both streams
     out.insert(out.end(), payload.iv.begin(), payload.iv.end());
     out.insert(out.end(), payload.metadataIv.begin(), payload.metadataIv.end());
 
@@ -184,8 +193,10 @@ bool encodeStartPayload(const StartPacketPayload &payload, std::vector<uint8_t> 
     return true;
 }
 
+/// read startpacket payload and recover structured fields - no decrypt yet
 bool decodeStartPayload(const uint8_t *data, std::size_t length, StartPacketPayload &out, std::string *error)
 {
+    // header must contain fixed bytes: name len, flags, filesize, two ivs, and ciphertext length
     const std::size_t minimum = 2u + sizeof(uint64_t) + (2 * IV_LENGTH) + sizeof(uint16_t);
     if (data == nullptr || length < minimum)
     {
@@ -199,6 +210,7 @@ bool decodeStartPayload(const uint8_t *data, std::size_t length, StartPacketPayl
     out.fileNameLength = data[0];
     out.flags = data[1];
 
+    // parse big-endian file size back into host order
     uint64_t fileSizeNetwork = 0;
     std::memcpy(&fileSizeNetwork, data + 2, sizeof(fileSizeNetwork));
     out.fileSize = networkToHost64(fileSizeNetwork);

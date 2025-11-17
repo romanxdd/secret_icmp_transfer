@@ -32,6 +32,7 @@
 namespace
 {
 
+/// receiver must have a login so i can derive the shared key
 bool ensureLoginProvided(const AppConfig &config, std::string &errorMessage)
 {
     if (config.login.empty())
@@ -42,6 +43,7 @@ bool ensureLoginProvided(const AppConfig &config, std::string &errorMessage)
     return true;
 }
 
+/// decrypt all the encrypted filename metadata using the metadata iv
 bool decryptFileName(
     protocol::StartPacketPayload &payload,
     const crypto::Key            &key,
@@ -85,6 +87,7 @@ bool decryptFileName(
     return true;
 }
 
+/// pick a capture interface | "any" if non specified by user
 bool chooseCaptureDevice(
     const std::string &requestedName,
     std::string       &deviceName,
@@ -118,6 +121,7 @@ bool chooseCaptureDevice(
         {
             if (cur->name && requestedName == cur->name)
             {
+                // found interface requested by user
                 deviceName = cur->name;
                 cleanup();
                 return true;
@@ -137,10 +141,12 @@ bool chooseCaptureDevice(
         }
         if (!chosen)
         {
+            // pick first iface as fallback
             chosen = cur;
         }
         if ((cur->flags & PCAP_IF_LOOPBACK) == 0)
         {
+            // prefer nonloopback when available
             chosen = cur;
             break;
         }
@@ -158,6 +164,7 @@ bool chooseCaptureDevice(
     return true;
 }
 
+/// saving decrypted bytes to disk
 bool writeFile(
     const std::string          &path,
     const std::vector<uint8_t> &data,
@@ -180,6 +187,8 @@ bool writeFile(
 
 constexpr int CAPTURE_TIMEOUT_MS   = 1000;
 constexpr int CAPTURE_BUFFER_BYTES = 8 * 1024 * 1024;
+/// configure a pcap handle with large buffer when possible, else fall back
+//  I had to do this becuase the transfer was failing for larger files
 pcap_t *openCaptureHandle(
     const std::string &deviceName,
     bool              &usingEnhancedBuffer,
@@ -201,6 +210,7 @@ pcap_t *openCaptureHandle(
             const int activateResult = ::pcap_activate(created);
             if (activateResult >= 0)
             {
+                // using the bigger configured buffer allows larger transfers
                 usingEnhancedBuffer = true;
                 return created;
             }
@@ -249,6 +259,7 @@ pcap_t *openCaptureHandle(
     return handle;
 }
 
+// needed for packets captured on "any" iface
 struct LinuxCookedCaptureHeader
 {
     uint16_t packetType;
@@ -269,6 +280,7 @@ struct LinuxCookedCaptureHeaderV2
     uint8_t  address[8];
 };
 
+/// peel off linklayer headers to expose the network payload i need
 bool extractNetworkPayload(
     int                datalink,
     const pcap_pkthdr *header,
@@ -326,6 +338,7 @@ bool extractNetworkPayload(
     }
 }
 
+/// parse ipv4+icmp echo frames and hand back the protocol payload
 bool extractIcmpv4Payload(
     const u_char   *networkBytes,
     std::size_t     remaining,
@@ -374,6 +387,7 @@ bool extractIcmpv4Payload(
     return true;
 }
 
+/// parse ipv6+icmp6 echo request frames and hand back the protocol payload
 bool extractIcmpv6Payload(
     const u_char   *networkBytes,
     std::size_t     remaining,
@@ -423,6 +437,7 @@ bool extractIcmpv6Payload(
     return true;
 }
 
+/// once ciphertext is reassembled -> decrypt and write out the file
 bool decryptToFile(
     const receiver::PacketReassembler &reassembler,
     const crypto::Key                 &key,
@@ -471,6 +486,7 @@ bool decryptToFile(
 namespace receiver
 {
 
+/// record metadata from the start packet and prep chunk buffers
 bool PacketReassembler::handleStart(
     const protocol::PacketHeader       &header,
     const protocol::StartPacketPayload &payload,
@@ -504,6 +520,7 @@ bool PacketReassembler::handleStart(
     return true;
 }
 
+/// stash each ciphertext chunk, tracking duplicates and totals
 bool PacketReassembler::handleData(
     const protocol::PacketHeader &header,
     const uint8_t                *payload,
@@ -539,6 +556,7 @@ bool PacketReassembler::handleData(
     return true;
 }
 
+/// mark transfer finished once matching end packet arrives
 bool PacketReassembler::handleEnd(const protocol::PacketHeader &header, std::string &errorMessage)
 {
     if (!state_.hasStart)
@@ -580,16 +598,20 @@ std::vector<uint8_t> PacketReassembler::assembleCiphertext() const
 
 } // namespace receiver
 
+/// main receiver loop: capture icmp, reassemble, decrypt, and write file
 bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &errorMessage)
 {
+    // resetting stats for any left overs, which shoudlnt happen tho
     stats = ReceiverStats{};
 
+    // sanity login key check
     if (!ensureLoginProvided(config, errorMessage))
     {
         return false;
     }
 
     crypto::Key key;
+    // derive the session key from login
     if (!crypto::deriveKeyFromLogin(config.login, key))
     {
         errorMessage = "key derivation failed";
@@ -600,10 +622,12 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
     const bool preferAny = config.interfaceName.empty();
     if (preferAny)
     {
+        // start with "any" so it can sniff for packets on all ifaces at once
         deviceName = "any";
     }
     else
     {
+        // otherwise validate the requested interface exists and sniff on that
         if (!chooseCaptureDevice(config.interfaceName, deviceName, errorMessage))
         {
             return false;
@@ -635,6 +659,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
             return false;
         }
         openError.clear();
+        // retry explicitly chosen interface when "any" creation failed
         handle = tryOpenHandle(deviceName, openError);
     }
 
@@ -644,6 +669,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
         return false;
     }
 
+    // build the BPF that hunts for my protocol signature
     const auto buildFilterExpression = [](AppConfig::IpVersionPreference pref)
     {
         switch (pref)
@@ -658,9 +684,11 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
         }
     };
 
+    // limit libpcap to only the ICMP echoes that carry my magic constant
     const std::string filterExpr = buildFilterExpression(config.ipVersionPreference);
 
     struct bpf_program program;
+    // https://www.tcpdump.org/manpages/pcap_compile.3pcap.html
     if (::pcap_compile(handle, &program, filterExpr.c_str(), 1, PCAP_NETMASK_UNKNOWN) == -1)
     {
         errorMessage = std::string("pcap_compile failed: ") + ::pcap_geterr(handle);
@@ -668,6 +696,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
         return false;
     }
 
+    // https://www.tcpdump.org/manpages/pcap_setfilter.3pcap.html
     if (::pcap_setfilter(handle, &program) == -1)
     {
         errorMessage = std::string("pcap_setfilter failed: ") + ::pcap_geterr(handle);
@@ -678,8 +707,12 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
     ::pcap_freecode(&program);
 
     receiver::PacketReassembler reassembler;
+    // stashing datalink type once so i know how to peel link-layer headers in the loop
+    // https://man7.org/linux/man-pages/man3/pcap_datalink.3pcap.html
     const int datalinkType = ::pcap_datalink(handle);
 
+    // progress printing when verbose mode is enabled
+    // it prints progress every 1% of progress, so the output is not spammed as much
     double lastProgressPercent = -10.0;
     const auto emitProgress = [&](bool force)
     {
@@ -743,6 +776,8 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
                   << " packets)" << std::endl;
     };
 
+    // loops as long reassembler isnt complete; handles return cases from
+    // https://linux.die.net/man/3/pcap_next_ex
     while (!reassembler.isComplete())
     {
         struct pcap_pkthdr *header = nullptr;
@@ -750,6 +785,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
         const int rc = ::pcap_next_ex(handle, &header, &packet);
         if (rc == 0)
         {
+            // timeout, loop again
             continue;
         }
         if (rc == -1)
@@ -763,6 +799,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
             break;
         }
 
+        // count every raw packet that survived the filter for stats
         stats.packetsCaptured += 1;
 
         const uint8_t *payload = nullptr;
@@ -776,6 +813,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
         const u_char *networkBytes = nullptr;
         std::size_t networkLength = 0;
         uint16_t etherType = 0;
+        // trimming linklayer headers (ethernet, SLL, etc) so i can inspect the IP payloads
         if (!extractNetworkPayload(datalinkType, header, packet, networkBytes, networkLength, etherType, packetError))
         {
             if (!packetError.empty())
@@ -789,6 +827,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
 
         if (allowIpv4 && etherType == ETHERTYPE_IP)
         {
+            // IPv4 frame -> look for ICMP echo requests with my protocol payload
             if (extractIcmpv4Payload(networkBytes, networkLength, payload, payloadLen, packetError))
             {
                 havePayload = true;
@@ -803,6 +842,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
 
         if (!havePayload && allowIpv6 && etherType == ETHERTYPE_IPV6)
         {
+            // IPv6 frame -> same logic but with ICMPv6 headers / offsets
             if (extractIcmpv6Payload(networkBytes, networkLength, payload, payloadLen, packetError))
             {
                 havePayload = true;
@@ -820,6 +860,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
             continue;
         }
 
+        // every payload begins with my fixed size protocol header
         protocol::PacketHeader headerParsed;
         if (!protocol::deserializeHeader(payload, payloadLen, headerParsed))
         {
@@ -851,6 +892,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
                     ::pcap_close(handle);
                     return false;
                 }
+                // duplicates ignored
                 continue;
             }
             stats.startPackets += 1;
@@ -867,6 +909,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
                     ::pcap_close(handle);
                     return false;
                 }
+                // duplicate/out of range packets are skipped without aborting
                 continue;
             }
             stats.dataPackets += 1;
@@ -882,6 +925,7 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
                     ::pcap_close(handle);
                     return false;
                 }
+                // ignore packets that don't match state
                 continue;
             }
             stats.endPackets += 1;
@@ -897,12 +941,14 @@ bool runReceiver(const AppConfig &config, ReceiverStats &stats, std::string &err
 
     emitProgress(true);
 
+    // capture ended (pcap EOF/break) before i saw every chunk i needed
     if (!reassembler.isComplete())
     {
         errorMessage = "capture ended before transfer complete";
         return false;
     }
 
+    // decrypt assembled ciphertext into the output file and populate stats
     if (!decryptToFile(reassembler, key, stats, errorMessage))
     {
         return false;
