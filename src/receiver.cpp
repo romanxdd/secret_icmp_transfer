@@ -1,3 +1,8 @@
+// #############################
+// ##  Author: Roman Krajčík  ##
+// ##  Login:  xkrajc26       ##
+// #############################
+
 #include "receiver.h"
 
 #include "crypto.h"

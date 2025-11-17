@@ -1,3 +1,8 @@
+// #############################
+// ##  Author: Roman Krajčík  ##
+// ##  Login:  xkrajc26       ##
+// #############################
+
 #include "sender.h"
 
 #include "protocol.h"
@@ -50,7 +55,7 @@ namespace
     }
 
     int runSenderFlowTest()
-    {        
+    {
         const std::string tempPath = "sender_test_input.bin";
         const std::string contents = "this is a sender flow test payload";
         {

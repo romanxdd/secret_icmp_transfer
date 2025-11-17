@@ -1,3 +1,8 @@
+// #############################
+// ##  Author: Roman Krajčík  ##
+// ##  Login:  xkrajc26       ##
+// #############################
+
 #ifndef SECRET_RECEIVER_H
 #define SECRET_RECEIVER_H
 

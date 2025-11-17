@@ -1,3 +1,8 @@
+// #############################
+// ##  Author: Roman Krajčík  ##
+// ##  Login:  xkrajc26       ##
+// #############################
+
 #include "crypto.h"
 
 #include <openssl/err.h>

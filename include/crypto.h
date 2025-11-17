@@ -1,3 +1,8 @@
+// #############################
+// ##  Author: Roman Krajčík  ##
+// ##  Login:  xkrajc26       ##
+// #############################
+
 #ifndef SECRET_CRYPTO_H
 #define SECRET_CRYPTO_H
 

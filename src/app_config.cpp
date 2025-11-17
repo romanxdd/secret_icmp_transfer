@@ -1,3 +1,8 @@
+// #############################
+// ##  Author: Roman Krajčík  ##
+// ##  Login:  xkrajc26       ##
+// #############################
+
 #include "app_config.h"
 
 #include <cerrno>
@@ -11,7 +16,7 @@
 
 namespace
 {
-    
+
 bool parseChunkSize(const char *argument, std::size_t &out, std::string &errorMessage)
 {
     try

@@ -1,3 +1,8 @@
+// #############################
+// ##  Author: Roman Krajčík  ##
+// ##  Login:  xkrajc26       ##
+// #############################
+
 #include "app_config.h"
 #include "icmp_channel.h"
 #include "receiver.h"

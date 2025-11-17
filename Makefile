@@ -1,3 +1,8 @@
+# #############################
+# ##  Author: Roman Krajčík  ##
+# ##  Login:  xkrajc26       ##
+# #############################
+
 CXX := g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -pedantic -O2
 CPPFLAGS := -Iinclude

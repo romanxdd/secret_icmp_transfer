@@ -1,3 +1,8 @@
+// #############################
+// ##  Author: Roman Krajčík  ##
+// ##  Login:  xkrajc26       ##
+// #############################
+
 #ifndef SECRET_ICMP_CHANNEL_H
 #define SECRET_ICMP_CHANNEL_H
 

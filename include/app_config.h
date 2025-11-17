@@ -1,3 +1,8 @@
+// #############################
+// ##  Author: Roman Krajčík  ##
+// ##  Login:  xkrajc26       ##
+// #############################
+
 #ifndef SECRET_APP_CONFIG_H
 #define SECRET_APP_CONFIG_H
 
